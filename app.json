@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "WellShe",
+    "slug": "wellshe",
+    "version": "1.0.2",
+    "orientation": "portrait",
+    "icon": "./assets/images/logo/wellshe_logo.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/images/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": ["**/*"],
+
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.feraye.wellshe",
+      "versionCode": 2,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/logo/wellshe_logo.png",
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": ["NOTIFICATIONS"]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": ["./plugins/withAndroidQueries", "expo-secure-store", "expo-notifications"],
+    "extra": {
+      "eas": {
+        "projectId": "4875fac3-fcb7-478f-be18-25febe55c294"
+      }
+    },
+    "owner": "wellshe"
+  }
+}
