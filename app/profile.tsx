@@ -25,8 +25,7 @@ const NAME_KEY = "userName";
 // ✅ Web linkleri
 const INSTAGRAM_WEB =
   "https://www.instagram.com/wellshe_1?igsh=MTNwbmM1bjgwODRiZw==";
-const TIKTOK_WEB =
-  "https://www.tiktok.com/@well_she?lang=tr-TR";
+const TIKTOK_WEB = "https://www.tiktok.com/@well_she?lang=tr-TR";
 const LINKEDIN_WEB =
   "https://www.linkedin.com/company/wellshe/?viewAsMember=true";
 
@@ -42,8 +41,14 @@ const PLAY_STORE_URL =
 const APP_STORE_URL =
   "https://apps.apple.com/app/id1234567890"; // hazır olunca gerçek ID ile değiş
 
-// ✅ Genel güvenli açma
-async function openExternal(url: string, fallbackMessage: string) {
+// ✅ Genel güvenli açma (social için alert baskılayabilmek üzere güncellendi)
+async function openExternal(
+  url: string,
+  fallbackMessage: string,
+  options?: { suppressAlert?: boolean }
+) {
+  const suppressAlert = options?.suppressAlert ?? false;
+
   try {
     const isHttp =
       url.startsWith("http://") ||
@@ -59,7 +64,9 @@ async function openExternal(url: string, fallbackMessage: string) {
     // 📱 Özel app scheme'leri için önce canOpenURL kontrolü
     const can = await Linking.canOpenURL(url);
     if (!can) {
-      Alert.alert("Açılamadı", fallbackMessage);
+      if (!suppressAlert && fallbackMessage) {
+        Alert.alert("Açılamadı", fallbackMessage);
+      }
       return false;
     }
 
@@ -67,19 +74,24 @@ async function openExternal(url: string, fallbackMessage: string) {
     return true;
   } catch (e) {
     console.log("openExternal error:", e);
-    Alert.alert("Açılamadı", fallbackMessage);
+    if (!suppressAlert && fallbackMessage) {
+      Alert.alert("Açılamadı", fallbackMessage);
+    }
     return false;
   }
 }
 
-// ✅ Sosyal medya: önce app scheme, olmazsa web
+// ✅ Sosyal medya: önce app scheme (sessiz), olmazsa web (alert sadece web de açılmazsa)
 async function openSocial(appUrl: string, webUrl: string, label: string) {
-  const openedApp = await openExternal(
-    appUrl,
-    `${label} uygulamasını şu an açamıyoruz.`
-  );
+  // 1) Uygulama linkini dene ama hata verirse uyarı gösterme
+  const openedApp = await openExternal(appUrl, "", { suppressAlert: true });
+
+  // 2) App açılamadıysa web linkine düş
   if (!openedApp) {
-    await openExternal(webUrl, `${label} bağlantısını şu an açamıyoruz.`);
+    await openExternal(
+      webUrl,
+      `${label} bağlantısını şu an açamıyoruz.`
+    );
   }
 }
 
@@ -145,7 +157,8 @@ export default function ProfileScreen() {
   const handleInstagram = () =>
     openSocial(INSTAGRAM_APP, INSTAGRAM_WEB, "Instagram");
 
-  const handleTikTok = () => openSocial(TIKTOK_APP, TIKTOK_WEB, "TikTok");
+  const handleTikTok = () =>
+    openSocial(TIKTOK_APP, TIKTOK_WEB, "TikTok");
 
   const handleLinkedIn = () =>
     openSocial(LINKEDIN_APP, LINKEDIN_WEB, "LinkedIn");
@@ -174,7 +187,8 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Profilim</Text>
         <Text style={styles.subtitle}>
-          Buradan ismini güncelleyebilir, istersen e-posta adresini ekleyebilirsin.
+          Buradan ismini güncelleyebilir, istersen e-posta adresini
+          ekleyebilirsin.
         </Text>
 
         {/* ✅ PROFİL KARTI */}
@@ -220,7 +234,10 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>İçeriklerim</Text>
 
-          <TouchableOpacity style={styles.card} onPress={() => router.push("/favorites")}>
+          <TouchableOpacity
+            style={styles.card}
+            onPress={() => router.push("/favorites")}
+          >
             <Text style={styles.cardTitle}>Favorilerim</Text>
             <Text style={styles.cardText}>
               Beğendiğin içerikleri burada toplu olarak görebilirsin.
@@ -232,22 +249,31 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>WellShe ile bağlantıda kal ✨</Text>
           <Text style={styles.sectionDescription}>
-            Güncellemeler, mini ipuçları ve yeni içerikler için sosyal medyada da
-            buluşalım.
+            Güncellemeler, mini ipuçları ve yeni içerikler için sosyal medyada
+            da buluşalım.
           </Text>
 
           <View style={styles.socialRow}>
-            <TouchableOpacity style={styles.socialButton} onPress={handleInstagram}>
+            <TouchableOpacity
+              style={styles.socialButton}
+              onPress={handleInstagram}
+            >
               <Ionicons name="logo-instagram" size={20} color="#B0756F" />
               <Text style={styles.socialText}>Instagram</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.socialButton} onPress={handleTikTok}>
+            <TouchableOpacity
+              style={styles.socialButton}
+              onPress={handleTikTok}
+            >
               <Ionicons name="logo-tiktok" size={20} color="#B0756F" />
               <Text style={styles.socialText}>TikTok</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.socialButton} onPress={handleLinkedIn}>
+            <TouchableOpacity
+              style={styles.socialButton}
+              onPress={handleLinkedIn}
+            >
               <Ionicons name="logo-linkedin" size={20} color="#B0756F" />
               <Text style={styles.socialText}>LinkedIn</Text>
             </TouchableOpacity>
@@ -256,7 +282,9 @@ export default function ProfileScreen() {
 
         {/* 🔹 PUANLA */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>WellShe’ye küçük bir yıldız bırak 🌟</Text>
+          <Text style={styles.sectionTitle}>
+            WellShe’ye küçük bir yıldız bırak 🌟
+          </Text>
           <Text style={styles.sectionDescription}>
             Uygulamayı beğendiysen, mağazada vereceğin puan çok şey değiştirir.
           </Text>
@@ -282,7 +310,8 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Bana yaz 💌</Text>
           <Text style={styles.sectionDescription}>
-            WellShe ile ilgili yorumun, sorun, teklifin veya önerin mi var? Bana yaz!
+            WellShe ile ilgili yorumun, sorun, teklifin veya önerin mi var? Bana
+            yaz!
           </Text>
 
           <TouchableOpacity style={styles.mailButton} onPress={handleSendMail}>
@@ -290,27 +319,40 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.secondaryButton} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.secondaryButton}
+          onPress={() => router.back()}
+        >
           <Text style={styles.secondaryButtonText}>Geri dön</Text>
         </TouchableOpacity>
 
-        {/* 🔹 GİZLİLİK */} 
-<View style={styles.section}>
-  <Text style={styles.sectionTitle}>Gizlilik</Text>
+        {/* 🔹 GİZLİLİK */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Gizlilik</Text>
 
-  <Pressable style={styles.card} onPress={() => router.push("/privacy")}>
-    <Text style={styles.cardTitle}>Gizlilik & KVKK</Text>
-    <Text style={styles.cardText}>
-      Verilerin sadece senin cihazında saklanır. Detaylar için dokun.
-    </Text>
-  </Pressable>
-</View>
+          <Pressable
+            style={styles.card}
+            onPress={() => router.push("/privacy")}
+          >
+            <Text style={styles.cardTitle}>Gizlilik & KVKK</Text>
+            <Text style={styles.cardText}>
+              Verilerin sadece senin cihazında saklanır. Detaylar için dokun.
+            </Text>
+          </Pressable>
+        </View>
 
         {/* Küçük not: store build için plugin şart */}
         {Platform.OS === "android" && (
           <View style={{ marginTop: 10 }}>
-            <Text style={{ fontSize: 11, color: "#8a6f6a", textAlign: "center" }}>
-              Not: Play Store build’de linklerin açılması için Android queries plugin’i gerekir.
+            <Text
+              style={{
+                fontSize: 11,
+                color: "#8a6f6a",
+                textAlign: "center",
+              }}
+            >
+              Not: Play Store build’de özel uygulama linkleri için Android
+              queries plugin’i gerekir.
             </Text>
           </View>
         )}
@@ -370,7 +412,11 @@ const styles = StyleSheet.create({
   },
   cardText: { fontSize: 14, color: "#4A2E2A" },
 
-  socialRow: { flexDirection: "row", justifyContent: "space-between", gap: 10 },
+  socialRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+  },
   socialButton: {
     flex: 1,
     paddingVertical: 10,

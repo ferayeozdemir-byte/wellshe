@@ -345,7 +345,7 @@ function getPhaseInfo(cycleDay: number, settings: PeriodSettings) {
 // 🔁 Faz etiketinden tek cümlelik mini öneri
 function getPhaseOneLiner(phaseLabel: string): string {
   if (phaseLabel.startsWith("Regl")) {
-    return "Regl fazındasın; tempoyu biraz düşürmek, sıcak içecekler ve yumuşak dinlenme alanları yaratmak bedenine çok iyi gelebilir.";
+    return "Regl fazındasın; tempoyu biraz düşürmek, sıcak içecekler hazırlamak ve yumuşak dinlenme alanları yaratmak bedenine çok iyi gelebilir.";
   }
   if (phaseLabel.startsWith("Toparlanma")) {
     return "Toparlanma fazındasın; hafif hareket ve dengeli beslenme enerjini yavaş yavaş geri çağırmana yardımcı olur.";
