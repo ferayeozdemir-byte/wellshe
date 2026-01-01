@@ -18,7 +18,7 @@ import RenderHTML from "react-native-render-html";
 import { publicStorageUrl, sbGetMany } from "../../lib/supabase";
 
 // 🔹 AdBanner (web-safe wrapper)
-import AdBanner from "../components/AdBanner";
+import AdBanner from "../../components/AdBanner";
 
 // Local içerikler
 import { articles as localArticles } from "../../data/content";
