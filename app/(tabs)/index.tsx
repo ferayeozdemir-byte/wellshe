@@ -6,7 +6,13 @@ import * as Notifications from "expo-notifications";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import * as Updates from "expo-updates";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -156,7 +162,7 @@ const categories: { key: CategoryKey; label: string }[] = [
   { key: "home", label: "Ev / Yaşam" },
 ];
 
-// Kategori etiketleri (Son eklenen içerikler için) — (şimdilik UI’da kullanılmasa da kalsın)
+// Kategori etiketleri (Son eklenen içerikler için)
 const categoryLabels: Record<CategoryId, string> = {
   healthyEating: "Sağlıklı Beslenme",
   relationships: "İlişkiler",
@@ -270,8 +276,16 @@ const WATER_TRACK_KEY = "wellshe_water_today";
 
 // 🔴 Küçük yardımcılar – regl kartı için
 function diffInDaysUTC(from: Date, to: Date) {
-  const d1 = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
-  const d2 = new Date(to.getFullYear(), to.getMonth(), to.getDate()).getTime();
+  const d1 = new Date(
+    from.getFullYear(),
+    from.getMonth(),
+    from.getDate()
+  ).getTime();
+  const d2 = new Date(
+    to.getFullYear(),
+    to.getMonth(),
+    to.getDate()
+  ).getTime();
   return Math.floor((d2 - d1) / (1000 * 60 * 60 * 24));
 }
 
@@ -287,6 +301,7 @@ function formatDateTR(date: Date) {
   const yyyy = date.getFullYear();
   return `${dd}.${mm}.${yyyy}`;
 }
+
 function getTodayKey() {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -344,15 +359,26 @@ function getPhaseOneLiner(phaseLabel: string): string {
   return "Bugün bedenini gözlemleyip ihtiyacına göre küçük bir iyilik yapman çok değerli.";
 }
 
+function getTodayMotivation(): string {
+  const today = new Date().getTime();
+  const diffDays = Math.floor(
+    (today - MOTIVATION_START_DATE) / (1000 * 60 * 60 * 24)
+  );
+  const index =
+    ((diffDays % MOTIVATION_QUOTES.length) + MOTIVATION_QUOTES.length) %
+    MOTIVATION_QUOTES.length;
+  return MOTIVATION_QUOTES[index];
+}
+
 export default function HomeScreen() {
-  // ✅ log import üstünde olamazdı, buraya aldık
+  // Home mount log
   useEffect(() => {
     console.log("HOME INDEX LOADED ✅", new Date().toISOString());
   }, []);
 
   const router = useRouter();
 
-  // ✅ map sabit kalsın
+  // DB -> UI kategori label map
   const dbCategoryLabels = useMemo<Record<string, string>>(
     () => ({
       healthy_eating: "Sağlıklı Beslenme",
@@ -368,14 +394,12 @@ export default function HomeScreen() {
     []
   );
 
-  // ✅ OTA debug: prod’da gizle
+  // OTA debug görünürlüğü
   const showOtaDebug = useMemo(() => {
     const channel = (Updates as any)?.channel ?? "";
-    // preview / development build'lerde açık kalsın
     return __DEV__ || String(channel).toLowerCase() === "preview";
   }, []);
 
-  // ✅ OTA: aynı oturumda tekrar tekrar sorma (Sonra derseniz bu session kapanır)
   const otaSuppressedThisSessionRef = useRef(false);
 
   useEffect(() => {
@@ -387,7 +411,7 @@ export default function HomeScreen() {
         // no-op
       }
     };
-    initSessionSuppression();
+    void initSessionSuppression();
   }, []);
 
   useEffect(() => {
@@ -433,10 +457,10 @@ export default function HomeScreen() {
       }
     };
 
-    checkForOta();
+    void checkForOta();
   }, []);
 
-    // ✅ Home: Son eklenenler (SADECE Supabase)
+  // ✅ Home: Son eklenenler (SADECE Supabase)
   const [latestRemote, setLatestRemote] = useState<
     {
       id: string;
@@ -450,7 +474,7 @@ export default function HomeScreen() {
   >([]);
   const [latestRemoteLoading, setLatestRemoteLoading] = useState(false);
 
-    const loadLatestRemote = useCallback(async () => {
+  const loadLatestRemote = useCallback(async () => {
     try {
       setLatestRemoteLoading(true);
 
@@ -494,7 +518,6 @@ export default function HomeScreen() {
     }
   }, [dbCategoryLabels]);
 
-
   // FAVORİ SİSTEMİ
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
 
@@ -509,12 +532,12 @@ export default function HomeScreen() {
   };
 
   useEffect(() => {
-    loadFavorites();
+    void loadFavorites();
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      loadFavorites();
+      void loadFavorites();
     }, [])
   );
 
@@ -538,8 +561,7 @@ export default function HomeScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [waterCount, setWaterCount] = useState(0);
 
-
-    // 🔹 Su sayacı – gün bazlı kalıcı hale getir
+  // 🔹 Su sayacı – gün bazlı kalıcı hale getir
   const loadWaterForToday = useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem(WATER_TRACK_KEY);
@@ -552,10 +574,8 @@ export default function HomeScreen() {
       const todayKey = getTodayKey();
 
       if (parsed?.date === todayKey && typeof parsed.count === "number") {
-        // Aynı gün → kaydedilmiş değeri yükle
         setWaterCount(parsed.count);
       } else {
-        // Eski güne ait ya da bozuk veri → sıfırla ve bugünün kaydını aç
         setWaterCount(0);
         await AsyncStorage.setItem(
           WATER_TRACK_KEY,
@@ -568,15 +588,13 @@ export default function HomeScreen() {
     }
   }, []);
 
-  // Uygulama açıldığında bir kere yükle
   useEffect(() => {
-    loadWaterForToday();
+    void loadWaterForToday();
   }, [loadWaterForToday]);
 
-  // Ekrana her dönüşte gün değişmiş mi diye tekrar kontrol et
   useFocusEffect(
     useCallback(() => {
-      loadWaterForToday();
+      void loadWaterForToday();
     }, [loadWaterForToday])
   );
 
@@ -611,7 +629,10 @@ export default function HomeScreen() {
       await Updates.fetchUpdateAsync();
       await Updates.reloadAsync();
     } catch (e: any) {
-      Alert.alert("OTA Hata", e?.message ?? "Update kontrolünde hata oluştu.");
+      Alert.alert(
+        "OTA Hata",
+        e?.message ?? "Update kontrolünde hata oluştu."
+      );
     }
   };
 
@@ -623,7 +644,7 @@ export default function HomeScreen() {
     }
   };
 
-  // ✅ Haftalık önerileri remote + fallback olarak tutacağız
+  // ✅ Haftalık önerileri remote + fallback
   const [weeklyLatest, setWeeklyLatest] = useState<{
     movie: WeeklyItem | null;
     music: WeeklyItem | null;
@@ -643,35 +664,34 @@ export default function HomeScreen() {
 
   // Kullanıcı adını yükle
   useEffect(() => {
-  const loadUser = async () => {
-    try {
-      let storedName: string | null = null;
-
+    const loadUser = async () => {
       try {
-        storedName = await SecureStore.getItemAsync("userName");
-      } catch (e) {
-        console.log("SecureStore okunurken hata:", e);
-      }
+        let storedName: string | null = null;
 
-      // SecureStore'da yoksa ya da web'de hata aldıysak AsyncStorage'tan dene
-      if (!storedName) {
         try {
-          storedName = await AsyncStorage.getItem("userName");
-        } catch (e2) {
-          console.log("AsyncStorage okunurken hata:", e2);
+          storedName = await SecureStore.getItemAsync("userName");
+        } catch (e) {
+          console.log("SecureStore okunurken hata:", e);
         }
+
+        if (!storedName) {
+          try {
+            storedName = await AsyncStorage.getItem("userName");
+          } catch (e2) {
+            console.log("AsyncStorage okunurken hata:", e2);
+          }
+        }
+
+        if (storedName) setName(storedName);
+      } finally {
+        setIsLoading(false);
       }
+    };
 
-      if (storedName) setName(storedName);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    void loadUser();
+  }, []);
 
-  loadUser();
-}, []);
-
-  // ✅ Weekly verisini ekrana her dönüşte yenile (tek kaynak)
+  // ✅ Weekly verisini ekrana her dönüşte yenile
   useFocusEffect(
     useCallback(() => {
       let isMounted = true;
@@ -707,128 +727,123 @@ export default function HomeScreen() {
     }, [])
   );
 
-  // ✅ Home’da kullanılacak latest’ler
   const latestMovie = weeklyLatest?.movie ?? pickLatestWeekly(weeklyArchive.movie);
   const latestMusic = weeklyLatest?.music ?? pickLatestWeekly(weeklyArchive.music);
   const latestBook = weeklyLatest?.book ?? pickLatestWeekly(weeklyArchive.book);
 
-  // Regl verilerini storage'dan okuyup cycleInfo'yu güncelleyen ortak fonksiyon
+  // Regl verilerini storage'dan okuyup cycleInfo'yu güncelleyen fonksiyon
   const loadPeriodData = useCallback(async () => {
-  try {
-    const [settingsRaw, logsRaw] = await Promise.all([
-      getFirstExisting(PERIOD_SETTINGS_KEYS),
-      getFirstExisting(PERIOD_LOGS_KEYS),
-    ]);
-
-    console.log("🔴 PERIOD DEBUG - RAW values:", {
-      settingsRaw,
-      logsRaw,
-    });
-
-    if (!settingsRaw || !logsRaw) {
-      console.log("🔴 PERIOD DEBUG - settings veya logs yok, cycleInfo null");
-      setCycleInfo(null);
-      return;
-    }
-
-    let settings: PeriodSettings;
-    let logs: PeriodLog[];
-
     try {
-      settings = JSON.parse(settingsRaw);
-    } catch (e) {
-      console.log("❌ PERIOD DEBUG - settings JSON parse hatası:", e);
-      setCycleInfo(null);
-      return;
-    }
+      const [settingsRaw, logsRaw] = await Promise.all([
+        getFirstExisting(PERIOD_SETTINGS_KEYS),
+        getFirstExisting(PERIOD_LOGS_KEYS),
+      ]);
 
-    try {
-      const parsedLogs = JSON.parse(logsRaw);
-      // logs tek obje gelirse array'e çevir
-      if (Array.isArray(parsedLogs)) {
-        logs = parsedLogs;
-      } else if (parsedLogs && Array.isArray(parsedLogs.logs)) {
-        logs = parsedLogs.logs;
-      } else {
-        console.log(
-          "❌ PERIOD DEBUG - logs beklenen formatta değil:",
-          parsedLogs
-        );
+      console.log("🔴 PERIOD DEBUG - RAW values:", {
+        settingsRaw,
+        logsRaw,
+      });
+
+      if (!settingsRaw || !logsRaw) {
+        console.log("🔴 PERIOD DEBUG - settings veya logs yok, cycleInfo null");
         setCycleInfo(null);
         return;
       }
+
+      let settings: PeriodSettings;
+      let logs: PeriodLog[] = [];
+
+      try {
+        settings = JSON.parse(settingsRaw);
+      } catch (e) {
+        console.log("❌ PERIOD DEBUG - settings JSON parse hatası:", e);
+        setCycleInfo(null);
+        return;
+      }
+
+      try {
+        const parsedLogs = JSON.parse(logsRaw);
+        if (Array.isArray(parsedLogs)) {
+          logs = parsedLogs;
+        } else if (parsedLogs && Array.isArray(parsedLogs.logs)) {
+          logs = parsedLogs.logs;
+        } else if (parsedLogs && parsedLogs.startDate) {
+          // Tek kayıt tutulmuş eski formatı da destekle
+          logs = [parsedLogs as PeriodLog];
+        } else {
+          console.log("❌ PERIOD DEBUG - logs beklenen formatta değil:", parsedLogs);
+          setCycleInfo(null);
+          return;
+        }
+      } catch (e) {
+        console.log("❌ PERIOD DEBUG - logs JSON parse hatası:", e);
+        setCycleInfo(null);
+        return;
+      }
+
+      if (!logs.length) {
+        console.log("🔴 PERIOD DEBUG - logs array boş, cycleInfo null");
+        setCycleInfo(null);
+        return;
+      }
+
+      const lastLog = logs[logs.length - 1];
+      const lastStart = new Date(lastLog.startDate);
+      const today = new Date();
+
+      const dayDiff = diffInDaysUTC(lastStart, today);
+      const cycleDay = dayDiff + 1;
+
+      console.log("🔴 PERIOD DEBUG - lastStart, cycleDay:", {
+        lastStart: lastStart.toISOString(),
+        today: today.toISOString(),
+        dayDiff,
+        cycleDay,
+      });
+
+      if (cycleDay <= 0) {
+        console.log("🔴 PERIOD DEBUG - cycleDay <= 0, henüz başlamamış gibi");
+        setCycleInfo(null);
+        return;
+      }
+
+      const nextStart = addDays(lastStart, settings.averageCycleLength);
+      const nextPeriodDateText = formatDateTR(nextStart);
+
+      const { phaseLabel, phaseDescription } = getPhaseInfo(cycleDay, settings);
+
+      console.log("🔴 PERIOD DEBUG - phase:", {
+        phaseLabel,
+        phaseDescription,
+        nextPeriodDateText,
+      });
+
+      setCycleInfo({
+        cycleDay,
+        phaseLabel,
+        phaseDescription,
+        nextPeriodDateText,
+      });
     } catch (e) {
-      console.log("❌ PERIOD DEBUG - logs JSON parse hatası:", e);
+      console.log("❌ Regl verileri yüklenirken genel hata:", e);
       setCycleInfo(null);
-      return;
     }
-
-    if (!logs.length) {
-      console.log("🔴 PERIOD DEBUG - logs array boş, cycleInfo null");
-      setCycleInfo(null);
-      return;
-    }
-
-    const lastLog = logs[logs.length - 1];
-    const lastStart = new Date(lastLog.startDate);
-    const today = new Date();
-
-    const dayDiff = diffInDaysUTC(lastStart, today);
-    const cycleDay = dayDiff + 1;
-
-    console.log("🔴 PERIOD DEBUG - lastStart, cycleDay:", {
-      lastStart: lastStart.toISOString(),
-      today: today.toISOString(),
-      dayDiff,
-      cycleDay,
-    });
-
-    if (cycleDay <= 0) {
-      console.log("🔴 PERIOD DEBUG - cycleDay <= 0, henüz başlamamış gibi");
-      setCycleInfo(null);
-      return;
-    }
-
-    const nextStart = addDays(lastStart, settings.averageCycleLength);
-    const nextPeriodDateText = formatDateTR(nextStart);
-
-    const { phaseLabel, phaseDescription } = getPhaseInfo(
-      cycleDay,
-      settings
-    );
-
-    console.log("🔴 PERIOD DEBUG - phase:", {
-      phaseLabel,
-      phaseDescription,
-      nextPeriodDateText,
-    });
-
-    setCycleInfo({
-      cycleDay,
-      phaseLabel,
-      phaseDescription,
-      nextPeriodDateText,
-    });
-  } catch (e) {
-    console.log("❌ Regl verileri yüklenirken genel hata:", e);
-    setCycleInfo(null);
-  }
-}, []);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      loadPeriodData();
+      void loadPeriodData();
     }, [loadPeriodData])
   );
 
   // ✅ latest remote: ilk açılış + her dönüş
   useEffect(() => {
-    loadLatestRemote();
+    void loadLatestRemote();
   }, [loadLatestRemote]);
 
   useFocusEffect(
     useCallback(() => {
-      loadLatestRemote();
+      void loadLatestRemote();
     }, [loadLatestRemote])
   );
 
@@ -959,32 +974,28 @@ export default function HomeScreen() {
 
   // Kullanıcı adını kaydet
   const handleSaveName = async () => {
-  const trimmed = tempName.trim();
-  if (!trimmed) return;
+    const trimmed = tempName.trim();
+    if (!trimmed) return;
 
-  try {
-    // Asıl tercih: SecureStore (native için)
-    await SecureStore.setItemAsync("userName", trimmed);
-  } catch (e) {
-    console.log("SecureStore kaydederken hata, AsyncStorage'a düşüyoruz:", e);
     try {
-      // Web için fallback
-      await AsyncStorage.setItem("userName", trimmed);
-    } catch (e2) {
-      console.log("AsyncStorage kaydederken hata:", e2);
+      await SecureStore.setItemAsync("userName", trimmed);
+    } catch (e) {
+      console.log("SecureStore kaydederken hata, AsyncStorage'a düşüyoruz:", e);
+      try {
+        await AsyncStorage.setItem("userName", trimmed);
+      } catch (e2) {
+        console.log("AsyncStorage kaydederken hata:", e2);
+      }
     }
-  }
 
-  // ❗ Her durumda adı state'e yaz ki ekran ilerlesin
-  setName(trimmed);
-};
+    setName(trimmed);
+  };
 
   const handleCategoryPress = (key: string) => {
     router.push(`/categories/${key}`);
   };
 
-  // Su sayacını değiştir
-    // Su sayacını değiştir + AsyncStorage'a kaydet (günlük)
+  // Su sayacını değiştir + AsyncStorage'a kaydet (günlük)
   const changeWaterCount = (delta: number) => {
     const todayKey = getTodayKey();
 
@@ -1087,14 +1098,18 @@ export default function HomeScreen() {
 
             {phaseOneLiner && (
               <>
-                <Text style={styles.phaseMiniTitle}>🔁 Bugün bedenin ne diyor?</Text>
+                <Text style={styles.phaseMiniTitle}>
+                  🔁 Bugün bedenin ne diyor?
+                </Text>
                 <Text style={styles.phaseMiniText}>{phaseOneLiner}</Text>
               </>
             )}
 
             <Text style={styles.periodNext}>
               Tahmini sonraki regl başlangıcı:{" "}
-              <Text style={{ fontWeight: "600" }}>{cycleInfo.nextPeriodDateText}</Text>
+              <Text style={{ fontWeight: "600" }}>
+                {cycleInfo.nextPeriodDateText}
+              </Text>
             </Text>
 
             <TouchableOpacity
@@ -1108,8 +1123,8 @@ export default function HomeScreen() {
           <View style={styles.periodCard}>
             <Text style={styles.periodTitle}>Regl döngünü takip et</Text>
             <Text style={styles.periodText}>
-              Döngünü uygulamaya kaydettiğinde burada her gün hangi fazda olduğunu ve
-              tahmini regl tarihini görebilirsin.
+              Döngünü uygulamaya kaydettiğinde burada her gün hangi fazda
+              olduğunu ve tahmini regl tarihini görebilirsin.
             </Text>
             <TouchableOpacity
               style={styles.periodButton}
@@ -1148,8 +1163,13 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={styles.reminderButton} onPress={handleWaterReminder}>
-              <Text style={styles.reminderButtonText}>Su hatırlatıcısını aç</Text>
+            <TouchableOpacity
+              style={styles.reminderButton}
+              onPress={handleWaterReminder}
+            >
+              <Text style={styles.reminderButtonText}>
+                Su hatırlatıcısını aç
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -1157,12 +1177,16 @@ export default function HomeScreen() {
           <View style={styles.smallCard}>
             <Text style={styles.smallCardTitle}>Hareket Et 🧘‍♀️</Text>
             <Text style={styles.smallCardText}>
-              En az 30 dakikalık hafif hareket planla: Kısa yürüyüş, esneme ya da basit
-              bir ev egzersizi olabilir.
+              En az 30 dakikalık hafif hareket planla: Kısa yürüyüş, esneme ya da
+              basit bir ev egzersizi olabilir.
             </Text>
 
             <TouchableOpacity
-              style={[styles.reminderButton, { marginTop: 8 }, styles.moveReminderButton]}
+              style={[
+                styles.reminderButton,
+                { marginTop: 8 },
+                styles.moveReminderButton,
+              ]}
               onPress={handleDailyMoveReminder}
             >
               <Text style={styles.reminderButtonText}>Bana Hatırlat</Text>
@@ -1171,44 +1195,41 @@ export default function HomeScreen() {
         </View>
 
         {/* Kategoriler */}
-<View style={styles.section}>
-  <Text style={styles.sectionTitle}>Kategoriler</Text>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Kategoriler</Text>
 
-  <ScrollView
-    horizontal
-    showsHorizontalScrollIndicator={false}
-    contentContainerStyle={styles.menuStoriesContent}
-  >
-    {categories.map((cat) => (
-      <TouchableOpacity
-        key={cat.key}
-        style={styles.menuItem}
-        onPress={() => handleCategoryPress(cat.key)}
-      >
-        <View style={styles.menuCircle}>
-          <Image
-            source={CATEGORY_ICONS[cat.key]}
-            style={styles.menuIcon}
-            resizeMode="cover"
-          />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.menuStoriesContent}
+          >
+            {categories.map((cat) => (
+              <TouchableOpacity
+                key={cat.key}
+                style={styles.menuItem}
+                onPress={() => handleCategoryPress(cat.key)}
+              >
+                <View style={styles.menuCircle}>
+                  <Image
+                    source={CATEGORY_ICONS[cat.key]}
+                    style={styles.menuIcon}
+                    resizeMode="cover"
+                  />
+                </View>
+
+                <Text style={styles.menuLabel}>{cat.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {/* 🔥 Kalori hesaplama butonu */}
+          <TouchableOpacity
+            style={styles.astroNotifyButton}
+            onPress={() => router.push("/calorie")}
+          >
+            <Text style={styles.astroNotifyButtonText}>🔥 Kalori Hesapla</Text>
+          </TouchableOpacity>
         </View>
-
-        <Text style={styles.menuLabel}>{cat.label}</Text>
-      </TouchableOpacity>
-    ))}
-  </ScrollView>
-
-  {/* 🔥 Kalori hesaplama butonu */}
-<TouchableOpacity
-  style={styles.astroNotifyButton}
-  onPress={() => router.push("/calorie")}
->
-  <Text style={styles.astroNotifyButtonText}>
-    🔥 Kalori Hesapla
-  </Text>
-</TouchableOpacity>
-</View>
-
 
         {/* Son eklenen içerikler + favori kalp */}
         <View style={styles.section}>
@@ -1226,39 +1247,44 @@ export default function HomeScreen() {
             latestRemote.map((article) => (
               <View key={article.id} style={styles.contentCardRow}>
                 <Pressable
-  style={{ flex: 1 }}
-  onPress={() =>
-    router.push({
-      pathname: article.slug
-        ? `/article/${article.slug}`
-        : `/article/${article.id}`,
-      params: {
-        articleId: article.id,
-        initialTitle: article.title,
-        initialSummary: article.summary,
-        initialCoverUrl: article.coverUrl ?? "",
-      },
-    })
-  }
->
+                  style={{ flex: 1 }}
+                  onPress={() =>
+                    router.push({
+                      pathname: article.slug
+                        ? `/article/${article.slug}`
+                        : `/article/${article.id}`,
+                      params: {
+                        articleId: article.id,
+                        initialTitle: article.title,
+                        initialSummary: article.summary,
+                        initialCoverUrl: article.coverUrl ?? "",
+                      },
+                    })
+                  }
+                >
                   <View style={styles.latestRowTop}>
-  {article.categoryKey ? (
-    <View style={styles.latestIconWrap}>
-      <Image
-        source={CATEGORY_ICONS[article.categoryKey]}
-        style={styles.latestIcon}
-        resizeMode="cover"
-      />
-    </View>
-  ) : null}
+                    {article.categoryKey ? (
+                      <View style={styles.latestIconWrap}>
+                        <Image
+                          source={CATEGORY_ICONS[article.categoryKey]}
+                          style={styles.latestIcon}
+                          resizeMode="cover"
+                        />
+                      </View>
+                    ) : null}
 
-  <Text style={styles.latestCategoryText}>{article.categoryLabel}</Text>
-</View>
+                    <Text style={styles.latestCategoryText}>
+                      {article.categoryLabel}
+                    </Text>
+                  </View>
 
-<Text style={styles.contentTitle}>{article.title}</Text>
+                  <Text style={styles.contentTitle}>{article.title}</Text>
                 </Pressable>
 
-                <Pressable onPress={() => toggleFavorite(article.id)} style={styles.favoriteButton}>
+                <Pressable
+                  onPress={() => toggleFavorite(article.id)}
+                  style={styles.favoriteButton}
+                >
                   <Text style={styles.favoriteIcon}>
                     {isFavorite(article.id) ? "💖" : "🤍"}
                   </Text>
@@ -1269,39 +1295,60 @@ export default function HomeScreen() {
         </View>
 
         {/* Haftanın Önerileri */}
-<View style={styles.sectionHeaderRow}>
-  <Text style={styles.sectionTitle}>Haftanın Önerileri</Text>
-</View>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Haftanın Önerileri</Text>
+        </View>
 
-  <Pressable style={styles.contentCard} onPress={() => router.push("/weekly/movie")}>
-    <View style={styles.weeklyRow}>
-      <Image source={WEEKLY_ICONS.movie} style={styles.weeklyIcon} resizeMode="contain" />
-      <Text style={styles.weeklyLabel}>Dizi / Film</Text>
-    </View>
-    <Text style={styles.contentTitle}>
-      {latestMovie?.teaser ?? "Bu hafta ilham veren bir yapım: ..."}
-    </Text>
-  </Pressable>
+        <Pressable
+          style={styles.contentCard}
+          onPress={() => router.push("/weekly/movie")}
+        >
+          <View style={styles.weeklyRow}>
+            <Image
+              source={WEEKLY_ICONS.movie}
+              style={styles.weeklyIcon}
+              resizeMode="contain"
+            />
+            <Text style={styles.weeklyLabel}>Dizi / Film</Text>
+          </View>
+          <Text style={styles.contentTitle}>
+            {latestMovie?.teaser ?? "Bu hafta ilham veren bir yapım: ..."}
+          </Text>
+        </Pressable>
 
-  <Pressable style={styles.contentCard} onPress={() => router.push("/weekly/music")}>
-    <View style={styles.weeklyRow}>
-      <Image source={WEEKLY_ICONS.music} style={styles.weeklyIcon} resizeMode="contain" />
-      <Text style={styles.weeklyLabel}>Müzik</Text>
-    </View>
-    <Text style={styles.contentTitle}>
-      {latestMusic?.teaser ?? "Ruhunu besleyecek bir müzik önerisi."}
-    </Text>
-  </Pressable>
+        <Pressable
+          style={styles.contentCard}
+          onPress={() => router.push("/weekly/music")}
+        >
+          <View style={styles.weeklyRow}>
+            <Image
+              source={WEEKLY_ICONS.music}
+              style={styles.weeklyIcon}
+              resizeMode="contain"
+            />
+            <Text style={styles.weeklyLabel}>Müzik</Text>
+          </View>
+          <Text style={styles.contentTitle}>
+            {latestMusic?.teaser ?? "Ruhunu besleyecek bir müzik önerisi."}
+          </Text>
+        </Pressable>
 
-  <Pressable style={styles.contentCard} onPress={() => router.push("/weekly/book")}>
-    <View style={styles.weeklyRow}>
-      <Image source={WEEKLY_ICONS.book} style={styles.weeklyIcon} resizeMode="contain" />
-      <Text style={styles.weeklyLabel}>Kitap</Text>
-    </View>
-    <Text style={styles.contentTitle}>
-      {latestBook?.teaser ?? "Sakin bir akşam için bir kitap."}
-    </Text>
-  </Pressable>
+        <Pressable
+          style={styles.contentCard}
+          onPress={() => router.push("/weekly/book")}
+        >
+          <View style={styles.weeklyRow}>
+            <Image
+              source={WEEKLY_ICONS.book}
+              style={styles.weeklyIcon}
+              resizeMode="contain"
+            />
+            <Text style={styles.weeklyLabel}>Kitap</Text>
+          </View>
+          <Text style={styles.contentTitle}>
+            {latestBook?.teaser ?? "Sakin bir akşam için bir kitap."}
+          </Text>
+        </Pressable>
 
         {/* Çiçekli minik not */}
         <View style={styles.flowerNote}>
@@ -1312,14 +1359,6 @@ export default function HomeScreen() {
       </ScrollView>
     </SafeAreaView>
   );
-}
-
-function getTodayMotivation(): string {
-  const today = new Date().getTime();
-  const diffDays = Math.floor((today - MOTIVATION_START_DATE) / (1000 * 60 * 60 * 24));
-  const index =
-    ((diffDays % MOTIVATION_QUOTES.length) + MOTIVATION_QUOTES.length) % MOTIVATION_QUOTES.length;
-  return MOTIVATION_QUOTES[index];
 }
 
 const styles = StyleSheet.create({
@@ -1454,15 +1493,15 @@ const styles = StyleSheet.create({
     color: "#5A3A35",
   },
   contentCardRow: {
-  flexDirection: "row",
-  alignItems: "center",
-  padding: 16,                // ✅ biraz daha premium
-  borderRadius: 12,
-  backgroundColor: "#FFFFFF",
-  borderWidth: 1,
-  borderColor: "#F3B6B3",
-  marginBottom: 10,
-},
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#F3B6B3",
+    marginBottom: 10,
+  },
   favoriteButton: {
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -1586,43 +1625,40 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   sectionTitle: {
-  fontSize: 18,
-  fontWeight: "600",
-  marginBottom: 12,
-  color: "#4A2E2A",
-},
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 12,
+    color: "#4A2E2A",
+  },
   menuStoriesContent: {
     paddingRight: 8,
   },
   menuItem: {
-  alignItems: "center",
-  marginRight: 12,
-},
-
-menuCircle: {
-  width: 88,                  // ✅ büyüdü (64 → 72)
-  height: 72,
-  borderRadius: 36,
-  overflow: "hidden",
-  alignItems: "center",
-  justifyContent: "center",
-  backgroundColor: "#fff",
-  borderWidth: 1,
-  borderColor: "#f0c6c6",
-},
-
-menuIcon: {
-  width: "100%",              // ✅ TEK tanım (çakışma yok)
-  height: "100%",
-},
-
-menuLabel: {
-  fontSize: 14,               // ✅ büyüdü
-  fontWeight: "700",
-  marginTop: 6,
-  textAlign: "center",
-  color: "#4A2E2A",
-},
+    alignItems: "center",
+    marginRight: 12,
+  },
+  menuCircle: {
+    width: 88,
+    height: 72,
+    borderRadius: 36,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#f0c6c6",
+  },
+  menuIcon: {
+    width: "100%",
+    height: "100%",
+  },
+  menuLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 6,
+    textAlign: "center",
+    color: "#4A2E2A",
+  },
   contentCard: {
     padding: 12,
     borderRadius: 12,
@@ -1662,51 +1698,48 @@ menuLabel: {
     color: "#FFFFFF",
     fontWeight: "700",
   },
-latestIconWrap: {
-  width: 28,                  // ✅ büyüdü (22 → 28)
-  height: 28,
-  borderRadius: 14,
-  overflow: "hidden",
-  backgroundColor: "#fff",
-  borderWidth: 1,
-  borderColor: "#F3B6B3",
-},
-
-latestIcon: {
-  width: "100%",
-  height: "100%",
-},
-latestCategoryText: {
-  fontSize: 16,               // ✅ büyüdü
-  fontWeight: "700",
-  color: "#B0756F",
-},
-weeklyRow: {
-  flexDirection: "row",
-  alignItems: "center",
-  gap: 10,
-  marginBottom: 8,
-},
-
-weeklyIcon: {
-  width: 30,                  // ✅ büyüdü (24 → 30)
-  height: 30,
-},
-
-weeklyLabel: {
-  fontSize: 16,               // ✅ büyüdü (15 → 16)
-  fontWeight: "800",
-  color: "#B0756F",
-},
-sectionHeaderRow: {
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "flex-start",
-},
-latestRowTop: {
-  flexDirection: "row",
-  alignItems: "center",
-  gap: 10,
-  marginBottom: 6,
-},
+  latestIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    overflow: "hidden",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#F3B6B3",
+  },
+  latestIcon: {
+    width: "100%",
+    height: "100%",
+  },
+  latestCategoryText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#B0756F",
+  },
+  weeklyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+  },
+  weeklyIcon: {
+    width: 30,
+    height: 30,
+  },
+  weeklyLabel: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#B0756F",
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+  },
+  latestRowTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 6,
+  },
 });

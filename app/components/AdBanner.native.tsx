@@ -1,18 +1,19 @@
+// components/AdBanner.native.tsx
 import React from "react";
 import { StyleSheet, View } from "react-native";
 import {
-    BannerAd,
-    BannerAdSize,
-    TestIds,
+  BannerAd,
+  BannerAdSize,
+  TestIds,
 } from "react-native-google-mobile-ads";
 
-const BANNER_AD_UNIT_ID: string = __DEV__
+const BANNER_AD_UNIT_ID = __DEV__
   ? TestIds.BANNER
   : "ca-app-pub-9133000462142645/6014393282";
 
 export default function AdBanner() {
   return (
-    <View style={styles.adContainer}>
+    <View style={styles.container}>
       <BannerAd
         unitId={BANNER_AD_UNIT_ID}
         size={BannerAdSize.ADAPTIVE_BANNER}
@@ -25,9 +26,7 @@ export default function AdBanner() {
 }
 
 const styles = StyleSheet.create({
-  adContainer: {
-    paddingHorizontal: 8,
-    paddingBottom: 8,
+  container: {
     alignItems: "center",
   },
 });
