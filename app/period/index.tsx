@@ -6,6 +6,7 @@ import { Stack } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
+
 type DateObject = { dateString: string };
 
 type PeriodLog = {
@@ -22,7 +24,7 @@ type PeriodLog = {
 
 type PeriodSettings = {
   averageCycleLength: number; // ortalama döngü süresi (gün)
-  periodLength: number;       // regl süresi (gün)
+  periodLength: number; // regl süresi (gün)
 };
 
 type CycleNotificationIds = {
@@ -45,7 +47,12 @@ type MoodDay = {
 
 type MoodData = Record<string, MoodDay>;
 
-type CyclePhase = "menstruation" | "follicular" | "ovulation" | "luteal" | "unknown";
+type CyclePhase =
+  | "menstruation"
+  | "follicular"
+  | "ovulation"
+  | "luteal"
+  | "unknown";
 
 type CyclePhaseInfo = {
   key: CyclePhase;
@@ -67,12 +74,45 @@ function formatDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+// ISO -> "GG.AA.YYYY"
+function formatDateTRFromISO(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}.${m}.${y}`;
+}
+
+// ISO aralık -> "19.12 - 23.12 2025" (yıl 1 kez)
+function formatRangeTR(startIso: string, endIso: string): string {
+  const [sy, sm, sd] = startIso.split("-");
+  const [ey, em, ed] = endIso.split("-");
+  if (!sy || !sm || !sd || !ey || !em || !ed) return `${startIso} - ${endIso}`;
+
+  const startShort = `${sd}.${sm}`;
+  const endShort = `${ed}.${em}`;
+
+  if (sy === ey) return `${startShort} - ${endShort} ${sy}`;
+  return `${startShort}.${sy} - ${endShort}.${ey}`;
+}
+
 // Tarih formatı kontrolü (YYYY-MM-DD)
 function isValidISODate(str: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
   const date = new Date(str);
   if (Number.isNaN(date.getTime())) return false;
   return formatDate(date) === str;
+}
+
+// ✅ Gelecek tarih kontrolü (son regl başlangıcı ileri tarih olamaz)
+function isFutureISODate(iso: string): boolean {
+  if (!isValidISODate(iso)) return false;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const picked = new Date(iso);
+  picked.setHours(0, 0, 0, 0);
+
+  return picked.getTime() > today.getTime();
 }
 
 // Tahmini sonraki regl başlangıç tarihi
@@ -97,7 +137,6 @@ function getOvulationInfo(
   }
 
   const lastStart = new Date(logs[logs.length - 1].startDate);
-  // Basit yaklaşım: döngünün tam ortası
   const ovulation = new Date(lastStart);
   ovulation.setDate(
     ovulation.getDate() + Math.round(settings.averageCycleLength / 2)
@@ -122,7 +161,6 @@ function getMarkedDates(
   settings: PeriodSettings | null
 ): Record<string, any> {
   const marked: Record<string, any> = {};
-
   if (!settings) return marked;
 
   const periodLength = settings.periodLength;
@@ -151,10 +189,7 @@ function getMarkedDates(
       d.setDate(d.getDate() + i);
       const key = formatDate(d);
       if (!marked[key]) {
-        marked[key] = {
-          selected: true,
-          selectedColor: "#C4A1FF",
-        };
+        marked[key] = { selected: true, selectedColor: "#C4A1FF" };
       }
     }
   }
@@ -165,7 +200,6 @@ function getMarkedDates(
     const ws = new Date(ovInfo.windowStart);
     const we = new Date(ovInfo.windowEnd);
 
-    // Verimli gün aralığı (açık pembe)
     for (
       let d = new Date(ws.getTime());
       d.getTime() <= we.getTime();
@@ -173,14 +207,10 @@ function getMarkedDates(
     ) {
       const key = formatDate(d);
       if (!marked[key]) {
-        marked[key] = {
-          selected: true,
-          selectedColor: "#FFE3F0",
-        };
+        marked[key] = { selected: true, selectedColor: "#FFE3F0" };
       }
     }
 
-    // Ovülasyon gününe pembe nokta ekle
     const ovKey = ovInfo.ovulationDate;
     marked[ovKey] = {
       ...(marked[ovKey] || {}),
@@ -217,6 +247,19 @@ async function clearCycleNotifications() {
     console.log("clearCycleNotifications error:", e);
   } finally {
     await AsyncStorage.removeItem(CYCLE_NOTIFICATION_IDS_KEY);
+  }
+}
+
+// Android kanalını sizin mevcut yapınızla uyumlu tuttum: "reminders"
+async function ensureAndroidChannel() {
+  if (Platform.OS !== "android") return;
+  try {
+    await Notifications.setNotificationChannelAsync("reminders", {
+      name: "Reminders",
+      importance: Notifications.AndroidImportance.DEFAULT,
+    });
+  } catch (e) {
+    console.log("ensureAndroidChannel error:", e);
   }
 }
 
@@ -278,11 +321,10 @@ function getCyclePhaseInfo(
     };
   }
 
-  // Menstrüasyon fazı
   if (diffDays >= 0 && diffDays < periodLen) {
     return {
       key: "menstruation",
-      title: "Regl fazı",
+      title: "Regl Fazı",
       description:
         "Bedenin yenilenme ve arınma sürecinde. Enerjinin dalgalanması son derece normal.",
       suggestion:
@@ -290,11 +332,10 @@ function getCyclePhaseInfo(
     };
   }
 
-  // Ovülasyon penceresi (mid - 2 ila mid + 2)
   if (diffDays >= mid - 2 && diffDays <= mid + 2) {
     return {
       key: "ovulation",
-      title: "Ovülasyon fazı",
+      title: "Ovülasyon Fazı",
       description:
         "Enerjinin ve öz güveninin arttığı, sosyal olarak daha dışa dönük hissetmeye eğilimli olabileceğin bir fazdasın.",
       suggestion:
@@ -302,11 +343,10 @@ function getCyclePhaseInfo(
     };
   }
 
-  // Folikül (regl sonrası, ovülasyona kadar)
   if (diffDays >= periodLen && diffDays < mid - 2) {
     return {
       key: "follicular",
-      title: "Folikül fazı",
+      title: "Folikül Fazı",
       description:
         "Regl sonrası enerjinin yavaş yavaş yükseldiği, zihinsel olarak daha açık ve meraklı hissettiğin bir dönemdesin.",
       suggestion:
@@ -314,7 +354,6 @@ function getCyclePhaseInfo(
     };
   }
 
-  // Luteal (ovülasyon sonrası, sonraki regle kadar)
   if (diffDays > mid + 2 && diffDays < cycleLen) {
     return {
       key: "luteal",
@@ -342,7 +381,6 @@ export default function PeriodScreen() {
   const [moodData, setMoodData] = useState<MoodData>({});
   const [loading, setLoading] = useState(true);
 
-  // Form alanları için local state
   const [inputLastStartDate, setInputLastStartDate] = useState("");
   const [inputAverageCycle, setInputAverageCycle] = useState("28");
   const [inputPeriodLength, setInputPeriodLength] = useState("5");
@@ -434,12 +472,20 @@ export default function PeriodScreen() {
       return;
     }
 
-    // Son regl tarihi girildiyse formatını kontrol et
     const trimmedDate = inputLastStartDate.trim();
     if (trimmedDate !== "" && !isValidISODate(trimmedDate)) {
       Alert.alert(
         "Tarih formatı hatalı",
         "Lütfen tarihi 2025-11-24 şeklinde (YYYY-AA-GG) gir ya da takvimden seç."
+      );
+      return;
+    }
+
+    // ✅ Gelecek tarih kaydedilemesin (manuel giriş dahil)
+    if (trimmedDate !== "" && isFutureISODate(trimmedDate)) {
+      Alert.alert(
+        "Geçersiz tarih",
+        "Son regl başlangıcı ileri bir tarih olamaz. Lütfen bugünü veya geçmiş bir günü gir."
       );
       return;
     }
@@ -451,7 +497,6 @@ export default function PeriodScreen() {
     setSettings(newSettings);
     await AsyncStorage.setItem(PERIOD_SETTINGS_KEY, JSON.stringify(newSettings));
 
-    // Kullanıcı son regl tarihini de buradan güncelliyorsa:
     if (trimmedDate !== "") {
       const logsArr: PeriodLog[] = [{ startDate: trimmedDate }];
       setLogs(logsArr);
@@ -464,7 +509,6 @@ export default function PeriodScreen() {
   const handleTodayStarted = async () => {
     const todayStr = formatDate(new Date());
 
-    // Tek kayıtlı model: sadece son regl başlangıcını tut
     const newLogs: PeriodLog[] = [{ startDate: todayStr }];
     setLogs(newLogs);
     setInputLastStartDate(todayStr);
@@ -477,106 +521,132 @@ export default function PeriodScreen() {
   };
 
   const handleCalendarDayPress = async (day: DateObject) => {
-  try {
-    const picked = day.dateString;
+    try {
+      const picked = day.dateString;
 
-    // UI alanı
-    setInputLastStartDate(picked);
+      // ✅ Gelecek tarih seçilemesin (takvimden)
+      if (isFutureISODate(picked)) {
+        Alert.alert(
+          "Geçersiz tarih",
+          "Son regl başlangıcı ileri bir tarih olamaz. Lütfen bugünü veya geçmiş bir günü seç."
+        );
+        return;
+      }
 
-    // Tek kayıt modeli
-    const newLogs: PeriodLog[] = [{ startDate: picked }];
-    setLogs(newLogs);
+      setInputLastStartDate(picked);
 
-    // ✅ Kaydı garanti altına al
-    await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(newLogs));
-  } catch (e) {
-    console.log("handleCalendarDayPress save error:", e);
-    Alert.alert("Hata", "Tarih kaydedilemedi. Lütfen tekrar dene.");
-  }
-};
+      const newLogs: PeriodLog[] = [{ startDate: picked }];
+      setLogs(newLogs);
 
+      await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(newLogs));
+    } catch (e) {
+      console.log("handleCalendarDayPress save error:", e);
+      Alert.alert("Hata", "Tarih kaydedilemedi. Lütfen tekrar dene.");
+    }
+  };
+
+  // ✅ SDK 54 + TS uyumlu: trigger = { type: DATE, date }
   const scheduleCycleNotifications = async () => {
-    if (!settings || logs.length === 0) {
-      Alert.alert(
-        "Eksik bilgi",
-        "Önce son regl başlangıcını ve döngü süreni kaydetmelisin."
-      );
-      return;
-    }
+    try {
+      if (!settings || logs.length === 0) {
+        Alert.alert(
+          "Eksik bilgi",
+          "Önce son regl başlangıcını ve döngü süreni kaydetmelisin."
+        );
+        return;
+      }
 
-    const next = getNextPeriodStart(logs, settings);
-    if (!next) {
-      Alert.alert(
-        "Hesaplanamıyor",
-        "Tahmini bir sonraki regl tarihi şimdilik hesaplanamıyor."
-      );
-      return;
-    }
+      const next = getNextPeriodStart(logs, settings);
+      if (!next) {
+        Alert.alert(
+          "Hesaplanamıyor",
+          "Tahmini bir sonraki regl tarihi şimdilik hesaplanamıyor."
+        );
+        return;
+      }
 
-    const nextDate = new Date(next);
-    const now = new Date();
-    if (nextDate <= now) {
-      Alert.alert(
-        "Tarih geçmiş",
-        "Tahmini regl tarihi geçmiş görünüyor. Lütfen son regl başlangıcını güncelle."
-      );
-      return;
-    }
+      const nextDate = new Date(next);
+      const now = new Date();
 
-    const beforeDate = new Date(nextDate);
-    beforeDate.setDate(beforeDate.getDate() - 2);
+      if (nextDate <= now) {
+        Alert.alert(
+          "Tarih geçmiş",
+          "Tahmini regl tarihi geçmiş görünüyor. Lütfen son regl başlangıcını güncelle."
+        );
+        return;
+      }
 
-    const { status } = await Notifications.requestPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "İzin yok",
-        "Bildirim gönderebilmem için bildirim izni vermen gerekiyor."
-      );
-      return;
-    }
+      const beforeDate = new Date(nextDate);
+      beforeDate.setDate(beforeDate.getDate() - 2);
 
-    // Eski döngü bildirimlerini iptal et
-    await clearCycleNotifications();
+      const existing = await Notifications.getPermissionsAsync();
+      let finalStatus = existing.status;
 
-    const ids: CycleNotificationIds = {};
+      if (finalStatus !== "granted") {
+        const req = await Notifications.requestPermissionsAsync();
+        finalStatus = req.status;
+      }
 
-    // 2 gün önce bildirimi (eğer ileri bir tarihse)
-    if (beforeDate > now) {
-      const beforeId = await Notifications.scheduleNotificationAsync({
+      if (finalStatus !== "granted") {
+        Alert.alert(
+          "İzin yok",
+          "Bildirim gönderebilmem için bildirim izni vermen gerekiyor."
+        );
+        return;
+      }
+
+      await ensureAndroidChannel();
+      await clearCycleNotifications();
+
+      const ids: CycleNotificationIds = {};
+
+      // 2 gün önce (ileri bir tarihse)
+      if (beforeDate > now) {
+        const beforeId = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "Reglin yaklaşıyor 🌸",
+            body: "Regline 2 gün kaldı. Yanına tampon veya ped almayı ihmal etme.",
+            sound: false,
+            ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: beforeDate,
+          },
+        });
+        ids.before = beforeId;
+      }
+
+      // Tahmini regl günü
+      const startId = await Notifications.scheduleNotificationAsync({
         content: {
-          title: "Reglin yaklaşıyor 🌸",
-          body: "İki gün içinde regl olabilirsin. Biraz daha dinlenmeye ve kendine özen göstermeye ne dersin?",
+          title: "Bugün regl başlayabilir 🌙",
+          body: "Döngünün yeni bir aşamasına giriyor olabilirsin. Bedenine kulak vermeyi unutma.",
+          sound: false,
+          ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
         },
         trigger: {
-  type: Notifications.SchedulableTriggerInputTypes.DATE,
-  date: beforeDate,
-},
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: nextDate,
+        },
       });
-      ids.before = beforeId;
+      ids.start = startId;
+
+      await AsyncStorage.setItem(CYCLE_NOTIFICATION_IDS_KEY, JSON.stringify(ids));
+
+      Alert.alert(
+        "Bildirimler ayarlandı",
+        "Bu döngü için regl bildirimleri planlandı. Son regl tarihini güncellediğinde istersen yeniden ayarlayabilirsin."
+      );
+    } catch (e: any) {
+      console.log("scheduleCycleNotifications error:", e);
+      Alert.alert(
+        "Hata",
+        e?.message
+          ? `Bildirimler ayarlanamadı: ${e.message}`
+          : "Bildirimler ayarlanamadı. Lütfen tekrar dene."
+      );
     }
-
-    // Tahmini regl günü bildirimi
-    const startId = await Notifications.scheduleNotificationAsync({
-      content: {
-        title: "Bugün regl başlayabilir 🌙",
-        body: "Döngünün yeni bir aşamasına giriyor olabilirsin. Bedenine kulak vermeyi unutma.",
-      },
-      trigger: {
-  type: Notifications.SchedulableTriggerInputTypes.DATE,
-  date: nextDate,
-},
-    });
-    ids.start = startId;
-
-    await AsyncStorage.setItem(
-      CYCLE_NOTIFICATION_IDS_KEY,
-      JSON.stringify(ids)
-    );
-
-    Alert.alert(
-      "Bildirimler ayarlandı",
-      "Bu döngü için regl bildirimleri planlandı. Son regl tarihini güncellediğinde istersen yeniden ayarlayabilirsin."
-    );
   };
 
   const handleSelectMood = async (level: MoodLevel) => {
@@ -617,7 +687,18 @@ export default function PeriodScreen() {
     );
   }
 
-  const lastStart = logs.length > 0 ? logs[logs.length - 1].startDate : null;
+  const lastStartIso = logs.length > 0 ? logs[logs.length - 1].startDate : null;
+
+  const lastStartTR = lastStartIso ? formatDateTRFromISO(lastStartIso) : null;
+  const nextPeriodTR = nextPeriod ? formatDateTRFromISO(nextPeriod) : null;
+  const ovulationDateTR = ovulationInfo.ovulationDate
+    ? formatDateTRFromISO(ovulationInfo.ovulationDate)
+    : null;
+
+  const fertileRangeTR =
+    ovulationInfo.windowStart && ovulationInfo.windowEnd
+      ? formatRangeTR(ovulationInfo.windowStart, ovulationInfo.windowEnd)
+      : null;
 
   return (
     <>
@@ -630,14 +711,26 @@ export default function PeriodScreen() {
           daha uyumlu bir ritim yakalayabilirsin.
         </Text>
 
+        {/* ✅ Bildirim butonu: döngü özetinin hemen üstünde */}
+        <Pressable
+          style={styles.secondaryButton}
+          onPress={scheduleCycleNotifications}
+        >
+          <Text style={styles.secondaryButtonText}>Döngün İçin Bildirimleri Aç</Text>
+        </Pressable>
+        <Text style={styles.helperText}>
+          Bildirim iznin açıksa, tahmini reglden 2 gün önce ve tahmini regl gününde
+          hatırlatıcı alırsın.
+        </Text>
+
         {/* Döngü Özeti */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Döngü özeti</Text>
+          <Text style={styles.cardTitle}>Döngü Özeti</Text>
 
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Son regl başlangıcın:</Text>
             <Text style={styles.summaryValue}>
-              {lastStart ? lastStart : "Henüz kayıt yok"}
+              {lastStartTR ? lastStartTR : "Henüz kayıt yok"}
             </Text>
           </View>
 
@@ -660,52 +753,102 @@ export default function PeriodScreen() {
               Tahmini bir sonraki regl başlangıcı:
             </Text>
             <Text style={styles.summaryValue}>
-              {nextPeriod ? nextPeriod : "Henüz hesaplanamıyor"}
+              {nextPeriodTR ? nextPeriodTR : "Henüz hesaplanamıyor"}
             </Text>
           </View>
 
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Tahmini ovülasyon günün:</Text>
             <Text style={styles.summaryValue}>
-              {ovulationInfo.ovulationDate ?? "Henüz hesaplanamıyor"}
+              {ovulationDateTR ?? "Henüz hesaplanamıyor"}
             </Text>
           </View>
 
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Verimli günlerin:</Text>
             <Text style={styles.summaryValue}>
-              {ovulationInfo.windowStart && ovulationInfo.windowEnd
-                ? `${ovulationInfo.windowStart} - ${ovulationInfo.windowEnd}`
-                : "Henüz hesaplanamıyor"}
+              {fertileRangeTR ? fertileRangeTR : "Henüz hesaplanamıyor"}
             </Text>
           </View>
 
           <Text style={styles.summaryNote}>
-            Tahmini tarih ve verimli günler, son regl başlangıcın ve ortalama
-            döngü süren üzerinden hesaplanır. Döngünü güncelledikçe bu alanlar
-            da senin ritmine daha çok uyum sağlar.
+            Tahmini tarih ve verimli günler, son regl başlangıcın ve ortalama döngü
+            süren üzerinden hesaplanır. Döngünü güncelledikçe bu alanlar da senin
+            ritmine daha çok uyum sağlar.
           </Text>
+        </View>
+
+        {/* ✅ Takvim: döngü özetinin altına alındı */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Takvim Görünümü</Text>
+          <Text style={styles.cardDescription}>
+            Aşağıdaki takvimde son regl başlangıcını takvimden de seçebilirsin.
+            Geçmiş regl günlerin, tahmini regl dönemlerin ve verimli günlerin
+            renklerle işaretlenir.
+          </Text>
+
+          <Calendar
+            onDayPress={handleCalendarDayPress}
+            markedDates={markedDates}
+            maxDate={todayKey} // ✅ gelecek günler seçilemez
+            theme={{
+              todayTextColor: "#B0756F",
+              arrowColor: "#B0756F",
+            }}
+          />
+
+          <View style={styles.legendContainer}>
+            <View style={styles.legendRow}>
+              <View style={[styles.legendColor, { backgroundColor: "#FF6B81" }]} />
+              <Text style={styles.legendText}>
+                Kırmızı alanlar: Regl olduğun günler
+              </Text>
+            </View>
+            <View style={styles.legendRow}>
+              <View style={[styles.legendColor, { backgroundColor: "#C4A1FF" }]} />
+              <Text style={styles.legendText}>
+                Mor alanlar: Tahmini bir sonraki regl döneminin günleri
+              </Text>
+            </View>
+            <View style={styles.legendRow}>
+              <View style={[styles.legendColor, { backgroundColor: "#FFE3F0" }]} />
+              <Text style={styles.legendText}>
+                Açık pembe alanlar: Tahmini verimli günlerin
+              </Text>
+            </View>
+            <View style={styles.legendRow}>
+              <View
+                style={[
+                  styles.legendColor,
+                  { backgroundColor: "#FF9EC4", borderRadius: 999 },
+                ]}
+              />
+              <Text style={styles.legendText}>
+                Pembe nokta: Tahmini ovülasyon günün
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* Bugün Regl Başladı butonu */}
         <Pressable style={styles.primaryButton} onPress={handleTodayStarted}>
-          <Text style={styles.primaryButtonText}>Bugün regl başladı</Text>
+          <Text style={styles.primaryButtonText}>Bugün Regl Başladı</Text>
         </Pressable>
         <Text style={styles.helperText}>
           Reglinin ilk gününde bu butona dokunarak döngünü güncellersin.
         </Text>
 
-        {/* Bugünkü fazın için mini öneri */}
+        {/* Bugünkü faz */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Bugün döngünün fazı</Text>
+          <Text style={styles.cardTitle}>Bugün Döngünün Fazı</Text>
           <Text style={styles.phaseTitle}>{phaseInfo.title}</Text>
           <Text style={styles.phaseText}>{phaseInfo.description}</Text>
           <Text style={styles.phaseSuggestion}>{phaseInfo.suggestion}</Text>
         </View>
 
-        {/* Bugünkü Modun & Semptomların */}
+        {/* Mod & Semptom */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Bugünkü modun & semptomların</Text>
+          <Text style={styles.cardTitle}>Bugünkü Modun & Semptomların</Text>
           <Text style={styles.cardDescription}>
             Bugün nasıl hissettiğini ve bedeninde neler olduğunu kısaca
             işaretleyebilirsin. Böylece zaman içinde döngüyle birlikte modunun
@@ -722,14 +865,11 @@ export default function PeriodScreen() {
                   style={[
                     styles.moodChip,
                     selected && styles.moodChipSelected,
-                    opt.key === "low" &&
-                      selected && { backgroundColor: "#FAD4D4" },
+                    opt.key === "low" && selected && { backgroundColor: "#FAD4D4" },
                     opt.key === "neutral" &&
                       selected && { backgroundColor: "#FFE8C2" },
-                    opt.key === "good" &&
-                      selected && { backgroundColor: "#D4F5D6" },
-                    opt.key === "great" &&
-                      selected && { backgroundColor: "#E9D8FF" },
+                    opt.key === "good" && selected && { backgroundColor: "#D4F5D6" },
+                    opt.key === "great" && selected && { backgroundColor: "#E9D8FF" },
                   ]}
                   onPress={() => handleSelectMood(opt.key)}
                 >
@@ -755,10 +895,7 @@ export default function PeriodScreen() {
               return (
                 <Pressable
                   key={symptom}
-                  style={[
-                    styles.symptomChip,
-                    selected && styles.symptomChipSelected,
-                  ]}
+                  style={[styles.symptomChip, selected && styles.symptomChipSelected]}
                   onPress={() => handleToggleSymptom(symptom)}
                 >
                   <Text
@@ -780,9 +917,9 @@ export default function PeriodScreen() {
           </Text>
         </View>
 
-        {/* Döngü Ayarların */}
+        {/* Ayarlar */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Döngü ayarların</Text>
+          <Text style={styles.cardTitle}>Döngü Ayarların</Text>
 
           <Text style={styles.inputLabel}>Son regl başlangıcın</Text>
           <TextInput
@@ -801,9 +938,7 @@ export default function PeriodScreen() {
             onChangeText={setInputAverageCycle}
           />
 
-          <Text style={styles.inputLabel}>
-            Reglin ortalama kaç gün sürüyor?
-          </Text>
+          <Text style={styles.inputLabel}>Reglin ortalama kaç gün sürüyor?</Text>
           <TextInput
             style={styles.input}
             placeholder="Örn: 5"
@@ -813,16 +948,7 @@ export default function PeriodScreen() {
           />
 
           <Pressable style={styles.secondaryButton} onPress={handleSaveSettings}>
-            <Text style={styles.secondaryButtonText}>Ayarları kaydet</Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.secondaryButton, { marginTop: 8 }]}
-            onPress={scheduleCycleNotifications}
-          >
-            <Text style={styles.secondaryButtonText}>
-              Bu döngü için bildirimleri ayarla
-            </Text>
+            <Text style={styles.secondaryButtonText}>Ayarları Kaydet</Text>
           </Pressable>
 
           <Text style={styles.helperText}>
@@ -830,93 +956,24 @@ export default function PeriodScreen() {
             yeniden ayarlaman gerekebilir.
           </Text>
         </View>
-
-        {/* Takvim Görünümü */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Takvim görünümü</Text>
-          <Text style={styles.cardDescription}>
-            Aşağıdaki takvimde son regl başlangıcını takvimden de seçebilirsin.
-            Geçmiş regl günlerin, tahmini regl dönemlerin ve verimli günlerin
-            renklerle işaretlenir.
-          </Text>
-
-          <Calendar
-            onDayPress={handleCalendarDayPress}
-            markedDates={markedDates}
-            theme={{
-              todayTextColor: "#B0756F",
-              arrowColor: "#B0756F",
-            }}
-          />
-
-          <View style={styles.legendContainer}>
-            <View style={styles.legendRow}>
-              <View
-                style={[styles.legendColor, { backgroundColor: "#FF6B81" }]}
-              />
-              <Text style={styles.legendText}>
-                Kırmızı alanlar: Regl olduğun günler
-              </Text>
-            </View>
-            <View style={styles.legendRow}>
-              <View
-                style={[styles.legendColor, { backgroundColor: "#C4A1FF" }]}
-              />
-              <Text style={styles.legendText}>
-                Mor alanlar: Tahmini bir sonraki regl döneminin günleri
-              </Text>
-            </View>
-            <View style={styles.legendRow}>
-              <View
-                style={[styles.legendColor, { backgroundColor: "#FFE3F0" }]}
-              />
-              <Text style={styles.legendText}>
-                Açık pembe alanlar: Tahmini verimli günlerin
-              </Text>
-            </View>
-            <View style={styles.legendRow}>
-              <View
-                style={[
-                  styles.legendColor,
-                  { backgroundColor: "#FF9EC4", borderRadius: 999 },
-                ]}
-              />
-              <Text style={styles.legendText}>
-                Pembe nokta: Tahmini ovülasyon günün
-              </Text>
-            </View>
-          </View>
-        </View>
       </ScrollView>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  loadingText: {
-    color: "#4A2E2A",
-    fontSize: 16,
-  },
+  content: { padding: 16, paddingBottom: 32 },
+  loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
+  loadingText: { color: "#4A2E2A", fontSize: 16 },
+
   pageTitle: {
     fontSize: 22,
     fontWeight: "700",
     color: "#4A2E2A",
     marginBottom: 8,
   },
-  pageSubtitle: {
-    fontSize: 13,
-    color: "#5A3A35",
-    marginBottom: 16,
-  },
+  pageSubtitle: { fontSize: 13, color: "#5A3A35", marginBottom: 16 },
+
   card: {
     padding: 14,
     borderRadius: 12,
@@ -931,22 +988,14 @@ const styles = StyleSheet.create({
     color: "#4A2E2A",
     marginBottom: 8,
   },
-  cardDescription: {
-    fontSize: 13,
-    color: "#5A3A35",
-    marginBottom: 10,
-  },
+  cardDescription: { fontSize: 13, color: "#5A3A35", marginBottom: 10 },
+
   summaryRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 4,
   },
-  summaryLabel: {
-    fontSize: 13,
-    color: "#5A3A35",
-    flex: 1.2,
-    paddingRight: 8,
-  },
+  summaryLabel: { fontSize: 13, color: "#5A3A35", flex: 1.2, paddingRight: 8 },
   summaryValue: {
     fontSize: 13,
     color: "#4A2E2A",
@@ -954,11 +1003,8 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: "right",
   },
-  summaryNote: {
-    marginTop: 8,
-    fontSize: 12,
-    color: "#887473",
-  },
+  summaryNote: { marginTop: 8, fontSize: 12, color: "#887473" },
+
   primaryButton: {
     marginTop: 4,
     paddingVertical: 12,
@@ -967,23 +1013,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  helperText: {
-    fontSize: 12,
-    color: "#887473",
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  inputLabel: {
-    fontSize: 13,
-    color: "#5A3A35",
-    marginTop: 8,
-    marginBottom: 4,
-  },
+  primaryButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+
+  helperText: { fontSize: 12, color: "#887473", marginTop: 4, marginBottom: 8 },
+
+  inputLabel: { fontSize: 13, color: "#5A3A35", marginTop: 8, marginBottom: 4 },
   input: {
     borderWidth: 1,
     borderColor: "#F3B6B3",
@@ -993,44 +1027,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#4A2E2A",
   },
+
   secondaryButton: {
-    marginTop: 12,
+    marginTop: 6,
     paddingVertical: 10,
     borderRadius: 10,
-    backgroundColor: "#FFE7E4",
+    backgroundColor: "#b86e65ff",
     alignItems: "center",
     justifyContent: "center",
   },
-  secondaryButtonText: {
-    color: "#B0756F",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  legendContainer: {
-    marginTop: 12,
-  },
-  legendRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  legendColor: {
-    width: 16,
-    height: 16,
-    marginRight: 8,
-    borderRadius: 4,
-  },
-  legendText: {
-    fontSize: 12,
-    color: "#5A3A35",
-    flex: 1,
-  },
-  moodRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 6,
-  },
+  secondaryButtonText: { color: "#f0ededff", fontSize: 15, fontWeight: "600" },
+
+  legendContainer: { marginTop: 12 },
+  legendRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
+  legendColor: { width: 16, height: 16, marginRight: 8, borderRadius: 4 },
+  legendText: { fontSize: 12, color: "#5A3A35", flex: 1 },
+
+  moodRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
   moodChip: {
     paddingVertical: 6,
     paddingHorizontal: 10,
@@ -1039,17 +1052,10 @@ const styles = StyleSheet.create({
     borderColor: "#F3B6B3",
     backgroundColor: "#FFF7F3",
   },
-  moodChipSelected: {
-    borderColor: "#B0756F",
-  },
-  moodChipText: {
-    fontSize: 12,
-    color: "#5A3A35",
-  },
-  moodChipTextSelected: {
-    fontWeight: "700",
-    color: "#4A2E2A",
-  },
+  moodChipSelected: { borderColor: "#B0756F" },
+  moodChipText: { fontSize: 12, color: "#5A3A35" },
+  moodChipTextSelected: { fontWeight: "700", color: "#4A2E2A" },
+
   symptomContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1064,31 +1070,16 @@ const styles = StyleSheet.create({
     borderColor: "#F3B6B3",
     backgroundColor: "#FFFFFF",
   },
-  symptomChipSelected: {
-    backgroundColor: "#FCE8E4",
-    borderColor: "#B0756F",
-  },
-  symptomChipText: {
-    fontSize: 12,
-    color: "#5A3A35",
-  },
-  symptomChipTextSelected: {
-    fontWeight: "600",
-    color: "#4A2E2A",
-  },
+  symptomChipSelected: { backgroundColor: "#FCE8E4", borderColor: "#B0756F" },
+  symptomChipText: { fontSize: 12, color: "#5A3A35" },
+  symptomChipTextSelected: { fontWeight: "600", color: "#4A2E2A" },
+
   phaseTitle: {
     fontSize: 14,
     fontWeight: "700",
     color: "#B0756F",
     marginBottom: 4,
   },
-  phaseText: {
-    fontSize: 13,
-    color: "#5A3A35",
-    marginBottom: 6,
-  },
-  phaseSuggestion: {
-    fontSize: 12,
-    color: "#887473",
-  },
+  phaseText: { fontSize: 13, color: "#5A3A35", marginBottom: 6 },
+  phaseSuggestion: { fontSize: 12, color: "#887473" },
 });

@@ -1,3 +1,4 @@
+import { Stack } from "expo-router"; // ✅ YENİ EKLENDİ
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -58,6 +59,9 @@ export default function WeeklyBookScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      {/* ✅ ÜST BAŞLIK – artık “Kitap” görünecek */}
+      <Stack.Screen options={{ title: "Kitap" }} />
+
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.pageTitle}>Haftanın Kitap Önerileri</Text>
 

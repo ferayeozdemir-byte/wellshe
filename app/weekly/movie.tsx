@@ -1,5 +1,6 @@
 // app/weekly/movie.tsx
 import { useFocusEffect } from "@react-navigation/native";
+import { Stack } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -43,7 +44,7 @@ export default function WeeklyMovieScreen() {
         try {
           // created: son eklenen üstte
           // updated: son düzenlenen üstte
-          const remote = await fetchWeeklyArchive("movie", "created");
+          const remote = await fetchWeeklyArchive("movie");
           if (!isMounted) return;
 
           if (remote.length > 0) setItems(remote);
@@ -70,6 +71,7 @@ export default function WeeklyMovieScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <Stack.Screen options={{ title: "Dizi / Film" }} />
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.pageTitle}>Haftanın Dizi / Film Önerileri</Text>
 

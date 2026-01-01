@@ -9,6 +9,7 @@ import {
   Alert,
   Linking,
   Platform,
+  Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -25,15 +26,15 @@ const NAME_KEY = "userName";
 const INSTAGRAM_WEB =
   "https://www.instagram.com/wellshe_1?igsh=MTNwbmM1bjgwODRiZw==";
 const TIKTOK_WEB =
-  "https://www.tiktok.com/@well_she?_r=1&_t=ZS-928879FQRnB";
+  "https://www.tiktok.com/@well_she?lang=tr-TR";
 const LINKEDIN_WEB =
-  "https://www.linkedin.com/in/wellshe-app-25080a3a0/";
+  "https://www.linkedin.com/company/wellshe/?viewAsMember=true";
 
 // ✅ App scheme (uygulama kuruluysa buraya gider, değilse web'e düşer)
 const INSTAGRAM_APP = "instagram://user?username=wellshe_1";
 const TIKTOK_APP = "tiktok://user?username=well_she";
 // LinkedIn deep link her cihazda stabil değil; yine de deneyip web'e düşüreceğiz:
-const LINKEDIN_APP = "linkedin://profile/wellshe-app-25080a3a0";
+const LINKEDIN_APP = "linkedin://company/wellshe";
 
 // Paket adına göre mağaza linkleri
 const PLAY_STORE_URL =
@@ -44,11 +45,24 @@ const APP_STORE_URL =
 // ✅ Genel güvenli açma
 async function openExternal(url: string, fallbackMessage: string) {
   try {
+    const isHttp =
+      url.startsWith("http://") ||
+      url.startsWith("https://") ||
+      url.startsWith("mailto:");
+
+    // 🌐 Web & mailto linklerinde canOpenURL kontrolü yapma, direkt aç
+    if (isHttp) {
+      await Linking.openURL(url);
+      return true;
+    }
+
+    // 📱 Özel app scheme'leri için önce canOpenURL kontrolü
     const can = await Linking.canOpenURL(url);
     if (!can) {
       Alert.alert("Açılamadı", fallbackMessage);
       return false;
     }
+
     await Linking.openURL(url);
     return true;
   } catch (e) {
@@ -279,6 +293,18 @@ export default function ProfileScreen() {
         <TouchableOpacity style={styles.secondaryButton} onPress={() => router.back()}>
           <Text style={styles.secondaryButtonText}>Geri dön</Text>
         </TouchableOpacity>
+
+        {/* 🔹 GİZLİLİK */} 
+<View style={styles.section}>
+  <Text style={styles.sectionTitle}>Gizlilik</Text>
+
+  <Pressable style={styles.card} onPress={() => router.push("/privacy")}>
+    <Text style={styles.cardTitle}>Gizlilik & KVKK</Text>
+    <Text style={styles.cardText}>
+      Verilerin sadece senin cihazında saklanır. Detaylar için dokun.
+    </Text>
+  </Pressable>
+</View>
 
         {/* Küçük not: store build için plugin şart */}
         {Platform.OS === "android" && (

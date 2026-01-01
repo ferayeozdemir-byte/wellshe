@@ -1,3 +1,4 @@
+import { Stack } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -58,6 +59,7 @@ export default function WeeklyMusicScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <Stack.Screen options={{ title: "Müzik" }} />
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.pageTitle}>Haftanın Müzik Önerileri</Text>
 

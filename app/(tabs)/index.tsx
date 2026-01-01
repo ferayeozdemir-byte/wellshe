@@ -5,7 +5,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import * as Notifications from "expo-notifications";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import React, { useCallback, useEffect, useState } from "react";
+import * as Updates from "expo-updates";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -20,11 +21,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
 import { type CategoryId } from "../../data/content";
 import { weeklyArchive, type WeeklyItem } from "../../data/weekly";
 import { fetchLatestArticlesRemote } from "../../lib/categoriesRemote";
 import { fetchLatestWeekly } from "../../lib/weeklyRemote";
+import { CATEGORY_ICONS, type CategoryKey } from "../_ui/categoryIcons";
+import { WEEKLY_ICONS } from "../_ui/weeklyIcons";
 
 const FAVORITES_KEY = "favorite_articles";
 
@@ -32,6 +34,9 @@ const FAVORITES_KEY = "favorite_articles";
 const WATER_IDS_KEY = "wellshe_water_notification_ids";
 const MOVE_IDS_KEY = "wellshe_move_notification_ids";
 const ASTRO_IDS_KEY = "wellshe_astro_notification_ids";
+
+// ✅ OTA prompt davranışı (session bazlı)
+const OTA_SESSION_SUPPRESS_KEY = "wellshe_ota_suppress_this_session";
 
 // 🔴 Regl verileri için olası anahtarlar (eski + yeni)
 const PERIOD_SETTINGS_KEYS = [
@@ -114,85 +119,12 @@ async function getFirstExisting(keys: string[]) {
   return null;
 }
 
-// ✅ DATE trigger ile güvenli planlama (Play Store build’lerinde daha stabil)
-function getNextOccurrenceDate(hour: number, minute: number) {
-  const now = new Date();
-  const d = new Date(now);
-  d.setHours(hour, minute, 0, 0);
-
-  // Saat bugün geçtiyse yarına kaydır
-  if (d.getTime() <= now.getTime()) {
-    d.setDate(d.getDate() + 1);
-  }
-  return d;
-}
-
-async function scheduleTimesForNDays(params: {
-  storageKey: string;
-  days: number;
-  times: { hour: number; minute: number }[];
-  title: string;
-  body: string;
-}) {
-  const { storageKey, days, times, title, body } = params;
-
-  // Önce bu gruba ait eskileri iptal et
-  await cancelStoredNotifications(storageKey);
-
-  const ids: string[] = [];
-  const now = new Date();
-
-  // Güvenlik: "şimdi"ye çok yakınsa Android bazen anında tetikleyebiliyor
-  const minFutureMs = 30 * 1000; // 30 sn
-
-  const getNextOccurrenceDate = (hour: number, minute: number) => {
-    const d = new Date();
-    d.setSeconds(0, 0);
-    d.setHours(hour, minute, 0, 0);
-
-    // Bugünün saati geçtiyse (veya çok yakınsa) yarına al
-    if (d.getTime() <= now.getTime() + minFutureMs) {
-      d.setDate(d.getDate() + 1);
-    }
-    return d;
-  };
-
-  // Her saat için "ilk gelecek zamanı" hesapla
-  const baseDates = times.map((t) => getNextOccurrenceDate(t.hour, t.minute));
-
-  for (let day = 0; day < days; day++) {
-    for (const base of baseDates) {
-      const date = new Date(base);
-      date.setDate(date.getDate() + day);
-
-      // ekstra güvenlik: yine de geçmişe düşerse atla
-      if (date.getTime() <= Date.now() + minFutureMs) continue;
-
-      const id = await Notifications.scheduleNotificationAsync({
-        content: {
-          title,
-          body,
-          sound: false,
-          ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
-        },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DATE,
-          date,
-        },
-      });
-
-      ids.push(id);
-    }
-  }
-
-  await AsyncStorage.setItem(storageKey, JSON.stringify(ids));
-}
-
 // ✅ Weekly fallback: arşiv dizisi hangi sırada olursa olsun "en güncel"i seç
-function pickLatestWeekly(arr: WeeklyItem[] | undefined | null): WeeklyItem | null {
+function pickLatestWeekly(
+  arr: WeeklyItem[] | undefined | null
+): WeeklyItem | null {
   if (!arr || arr.length === 0) return null;
 
-  // Eğer WeeklyItem içinde tarih alanı varsa onu kullan, yoksa fallback olarak ilk eleman.
   const getKey = (x: any) =>
     String(
       x?.created_at ??
@@ -205,24 +137,26 @@ function pickLatestWeekly(arr: WeeklyItem[] | undefined | null): WeeklyItem | nu
         ""
     );
 
-  const sorted = [...arr].sort((a: any, b: any) => getKey(b).localeCompare(getKey(a)));
+  const sorted = [...arr].sort((a: any, b: any) =>
+    getKey(b).localeCompare(getKey(a))
+  );
   return sorted[0] ?? arr[0] ?? null;
 }
 
 // Kategori menüsü
-const categories = [
-  { key: "healthyEating", label: "Sağlıklı\nBeslenme", emoji: "🥗" },
-  { key: "relationships", label: "İlişkiler", emoji: "💞" },
-  { key: "wellbeing", label: "Wellbeing", emoji: "✨" },
-  { key: "sport", label: "Spor", emoji: "🏃‍♀️" },
-  { key: "fashion", label: "Moda", emoji: "👗" },
-  { key: "beauty", label: "Güzellik", emoji: "💄" },
-  { key: "astrology", label: "Astroloji", emoji: "🔮" },
-  { key: "travel", label: "Seyahat", emoji: "✈️" },
-  { key: "home", label: "Ev / Yaşam", emoji: "🏡" },
+const categories: { key: CategoryKey; label: string }[] = [
+  { key: "healthyEating", label: "Sağlıklı\nBeslenme" },
+  { key: "relationships", label: "İlişkiler" },
+  { key: "wellbeing", label: "Wellbeing" },
+  { key: "sport", label: "Spor" },
+  { key: "fashion", label: "Moda" },
+  { key: "beauty", label: "Güzellik" },
+  { key: "astrology", label: "Astroloji" },
+  { key: "travel", label: "Seyahat" },
+  { key: "home", label: "Ev / Yaşam" },
 ];
 
-// Kategori etiketleri (Son eklenen içerikler için)
+// Kategori etiketleri (Son eklenen içerikler için) — (şimdilik UI’da kullanılmasa da kalsın)
 const categoryLabels: Record<CategoryId, string> = {
   healthyEating: "Sağlıklı Beslenme",
   relationships: "İlişkiler",
@@ -304,7 +238,7 @@ const MOTIVATION_QUOTES: string[] = [
   "Enerjini doğru yere yönlendirdiğinde sonuçların değiştiğini görebilirsin.",
   "İç sesini dinle, en doğru cevap onda.",
   "Kendini keşfetmek, en büyük yolculuktur.",
-  "Kendini olduğun gibi kabul etmek özgürlüktür.",
+  "Kendini olduğun gibi kabul etmek, özgürlüktür.",
   "Ne kadar yol alacağını bugün attığın adım belirler.",
   "Cesaretinle hayatına yön verebilirsin.",
   "Beklediğin değişim seninle başlar.",
@@ -317,9 +251,9 @@ const MOTIVATION_QUOTES: string[] = [
   "Ne kadar ilerlediğini fark etmek için bir an dur.",
   "Kendine alan aç. Büyümek için buna ihtiyacın var.",
   "Şimdi başla! Mükemmel anı bekleme.",
-  "Kendini olduğun yerden daha iyi bir yere taşıyabilirsin.",
+  "Kendini, olduğun yerden daha iyi bir yere taşıyabilirsin.",
   "Bugün hayatına iyi gelen şeylere odaklan.",
-  "Kendini yenilemek için asla geç değil.",
+  "Kendini yenilemek adına harekete geçmek için asla geç değil.",
   "Şefkati bir prensip hâline getir. En çok da kendin için.",
   "Zihnin sakinleştiğinde çözümler belirir.",
   "Adım adım ilerlediğinde büyük işler başarırsın.",
@@ -332,6 +266,7 @@ const MOTIVATION_QUOTES: string[] = [
 
 const MOTIVATION_START_DATE = new Date("2025-01-01").getTime();
 const WATER_GOAL = 6;
+const WATER_TRACK_KEY = "wellshe_water_today";
 
 // 🔴 Küçük yardımcılar – regl kartı için
 function diffInDaysUTC(from: Date, to: Date) {
@@ -351,6 +286,14 @@ function formatDateTR(date: Date) {
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const yyyy = date.getFullYear();
   return `${dd}.${mm}.${yyyy}`;
+}
+function getTodayKey() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  // Storage için sade ISO format
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function getPhaseInfo(cycleDay: number, settings: PeriodSettings) {
@@ -402,51 +345,154 @@ function getPhaseOneLiner(phaseLabel: string): string {
 }
 
 export default function HomeScreen() {
+  // ✅ log import üstünde olamazdı, buraya aldık
+  useEffect(() => {
+    console.log("HOME INDEX LOADED ✅", new Date().toISOString());
+  }, []);
+
   const router = useRouter();
-  // ✅ Home: Son eklenenler (SADECE Supabase)
-const [latestRemote, setLatestRemote] = useState<
-  { id: string; title: string; slug: string | null; categoryLabel: string }[]
->([]);
-const [latestRemoteLoading, setLatestRemoteLoading] = useState(false);
 
-const dbCategoryLabels: Record<string, string> = {
-  healthy_eating: "Sağlıklı Beslenme",
-  home_living: "Ev / Yaşam",
-  wellbeing: "Wellbeing",
-  relationships: "İlişkiler",
-  sport: "Spor",
-  fashion: "Moda",
-  beauty: "Güzellik",
-  astrology: "Astroloji",
-  travel: "Seyahat",
-};
+  // ✅ map sabit kalsın
+  const dbCategoryLabels = useMemo<Record<string, string>>(
+    () => ({
+      healthy_eating: "Sağlıklı Beslenme",
+      home_living: "Ev / Yaşam",
+      wellbeing: "Wellbeing",
+      relationships: "İlişkiler",
+      sport: "Spor",
+      fashion: "Moda",
+      beauty: "Güzellik",
+      astrology: "Astroloji",
+      travel: "Seyahat",
+    }),
+    []
+  );
 
-const loadLatestRemote = useCallback(async () => {
-  try {
-    setLatestRemoteLoading(true);
+  // ✅ OTA debug: prod’da gizle
+  const showOtaDebug = useMemo(() => {
+    const channel = (Updates as any)?.channel ?? "";
+    // preview / development build'lerde açık kalsın
+    return __DEV__ || String(channel).toLowerCase() === "preview";
+  }, []);
 
-    const rows = await fetchLatestArticlesRemote(3);
+  // ✅ OTA: aynı oturumda tekrar tekrar sorma (Sonra derseniz bu session kapanır)
+  const otaSuppressedThisSessionRef = useRef(false);
 
-    // ✅ DEBUG (1 kere bakıp sonra kaldıracağız)
-    console.log("[Home latest] rows:", rows);
+  useEffect(() => {
+    const initSessionSuppression = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(OTA_SESSION_SUPPRESS_KEY);
+        if (stored === "1") otaSuppressedThisSessionRef.current = true;
+      } catch {
+        // no-op
+      }
+    };
+    initSessionSuppression();
+  }, []);
 
-    const mapped = (rows ?? []).map((r) => ({
-      id: r.article_id,
-      title: (r.title ?? "").trim(),
-      slug: r.slug ?? null,
+  useEffect(() => {
+    const checkForOta = async () => {
+      try {
+        if (otaSuppressedThisSessionRef.current) return;
 
-      // ✅ label her durumda üret (bilinmiyorsa ham category_id göster)
-      categoryLabel: dbCategoryLabels[r.category_id ?? ""] ?? (r.category_id ?? "Kategori"),
-    }));
+        const update = await Updates.checkForUpdateAsync();
 
-    setLatestRemote(mapped);
-  } catch (e) {
-    console.log("Home latest remote hata:", e);
-    setLatestRemote([]);
-  } finally {
-    setLatestRemoteLoading(false);
-  }
-}, []);
+        if (update.isAvailable) {
+          Alert.alert(
+            "Güncelleme Var",
+            "Uygulamanın yeni bir sürümü hazır. Şimdi güncellemek ister misiniz?",
+            [
+              {
+                text: "Sonra",
+                style: "cancel",
+                onPress: async () => {
+                  otaSuppressedThisSessionRef.current = true;
+                  try {
+                    await AsyncStorage.setItem(OTA_SESSION_SUPPRESS_KEY, "1");
+                  } catch {
+                    // no-op
+                  }
+                },
+              },
+              {
+                text: "Güncelle",
+                onPress: async () => {
+                  try {
+                    await Updates.fetchUpdateAsync();
+                    await Updates.reloadAsync();
+                  } catch (e) {
+                    console.log("OTA fetch/reload failed:", e);
+                  }
+                },
+              },
+            ]
+          );
+        }
+      } catch (e) {
+        console.log("OTA check failed:", e);
+      }
+    };
+
+    checkForOta();
+  }, []);
+
+    // ✅ Home: Son eklenenler (SADECE Supabase)
+  const [latestRemote, setLatestRemote] = useState<
+    {
+      id: string;
+      title: string;
+      summary: string;
+      slug: string | null;
+      categoryLabel: string;
+      categoryKey: CategoryKey | null;
+      coverUrl: string | null;
+    }[]
+  >([]);
+  const [latestRemoteLoading, setLatestRemoteLoading] = useState(false);
+
+    const loadLatestRemote = useCallback(async () => {
+    try {
+      setLatestRemoteLoading(true);
+
+      const rows = await fetchLatestArticlesRemote(3);
+      console.log("[Home latest] rows:", rows);
+
+      const dbToAppCategoryKey: Record<string, CategoryKey> = {
+        healthy_eating: "healthyEating",
+        home_living: "home",
+        wellbeing: "wellbeing",
+        relationships: "relationships",
+        sport: "sport",
+        fashion: "fashion",
+        beauty: "beauty",
+        astrology: "astrology",
+        travel: "travel",
+      };
+
+      const mapped = (rows ?? []).map((r: any) => {
+        const dbCat = String(r.category_id ?? "");
+        const title = String(r.title ?? "").trim();
+        const summary = String(r.summary ?? "").trim();
+
+        return {
+          id: String(r.article_id),
+          title: title || "Başlık yok",
+          summary,
+          slug: r.slug ?? null,
+          categoryLabel: dbCategoryLabels[dbCat] ?? (dbCat || "Kategori"),
+          categoryKey: dbToAppCategoryKey[dbCat] ?? null,
+          coverUrl: r.imageUrl ?? null,
+        };
+      });
+
+      setLatestRemote(mapped);
+    } catch (e) {
+      console.log("Home latest remote hata:", e);
+      setLatestRemote([]);
+    } finally {
+      setLatestRemoteLoading(false);
+    }
+  }, [dbCategoryLabels]);
 
 
   // FAVORİ SİSTEMİ
@@ -492,6 +538,91 @@ const loadLatestRemote = useCallback(async () => {
   const [isLoading, setIsLoading] = useState(true);
   const [waterCount, setWaterCount] = useState(0);
 
+
+    // 🔹 Su sayacı – gün bazlı kalıcı hale getir
+  const loadWaterForToday = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(WATER_TRACK_KEY);
+      if (!raw) {
+        setWaterCount(0);
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      const todayKey = getTodayKey();
+
+      if (parsed?.date === todayKey && typeof parsed.count === "number") {
+        // Aynı gün → kaydedilmiş değeri yükle
+        setWaterCount(parsed.count);
+      } else {
+        // Eski güne ait ya da bozuk veri → sıfırla ve bugünün kaydını aç
+        setWaterCount(0);
+        await AsyncStorage.setItem(
+          WATER_TRACK_KEY,
+          JSON.stringify({ date: todayKey, count: 0 })
+        );
+      }
+    } catch (e) {
+      console.log("Su sayacı yüklenirken hata:", e);
+      setWaterCount(0);
+    }
+  }, []);
+
+  // Uygulama açıldığında bir kere yükle
+  useEffect(() => {
+    loadWaterForToday();
+  }, [loadWaterForToday]);
+
+  // Ekrana her dönüşte gün değişmiş mi diye tekrar kontrol et
+  useFocusEffect(
+    useCallback(() => {
+      loadWaterForToday();
+    }, [loadWaterForToday])
+  );
+
+  // ✅ OTA debug state
+  const [otaDebug, setOtaDebug] = useState<string>("");
+
+  useEffect(() => {
+    if (!showOtaDebug) return;
+
+    const channel = (Updates as any).channel ?? "-";
+    const runtime = Updates.runtimeVersion ?? "-";
+    const updateId = (Updates as any).updateId ?? "-";
+    const createdAt = (Updates as any).createdAt
+      ? String((Updates as any).createdAt)
+      : "-";
+    const isEmbedded = (Updates as any).isEmbeddedLaunch ?? "-";
+
+    setOtaDebug(
+      `channel: ${channel}\nruntime: ${runtime}\nupdateId: ${updateId}\ncreatedAt: ${createdAt}\nembedded: ${isEmbedded}`
+    );
+  }, [showOtaDebug]);
+
+  const checkAndApplyOta = async () => {
+    try {
+      const r = await Updates.checkForUpdateAsync();
+      if (!r.isAvailable) {
+        Alert.alert("OTA", "Bu build için yeni update bulunamadı.");
+        return;
+      }
+
+      Alert.alert("OTA", "Yeni update bulundu. İndiriliyor...");
+      await Updates.fetchUpdateAsync();
+      await Updates.reloadAsync();
+    } catch (e: any) {
+      Alert.alert("OTA Hata", e?.message ?? "Update kontrolünde hata oluştu.");
+    }
+  };
+
+  const reloadOnly = async () => {
+    try {
+      await Updates.reloadAsync();
+    } catch {
+      // no-op
+    }
+  };
+
   // ✅ Haftalık önerileri remote + fallback olarak tutacağız
   const [weeklyLatest, setWeeklyLatest] = useState<{
     movie: WeeklyItem | null;
@@ -512,157 +643,196 @@ const loadLatestRemote = useCallback(async () => {
 
   // Kullanıcı adını yükle
   useEffect(() => {
-    const loadUser = async () => {
-      try {
-        const storedName = await SecureStore.getItemAsync("userName");
-        if (storedName) setName(storedName);
-      } catch (e) {
-        console.log("İsim yüklenirken hata:", e);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    loadUser();
-  }, []);
-
-  // ✅ Weekly verisini ilk açılışta + ekrana her dönüşte yenile
-  const loadWeeklyLatest = useCallback(async () => {
+  const loadUser = async () => {
     try {
-      const [movie, music, book] = await Promise.all([
-        fetchLatestWeekly("movie"),
-        fetchLatestWeekly("music"),
-        fetchLatestWeekly("book"),
-      ]);
+      let storedName: string | null = null;
 
-      setWeeklyLatest({
-        movie: movie ?? pickLatestWeekly(weeklyArchive.movie),
-        music: music ?? pickLatestWeekly(weeklyArchive.music),
-        book: book ?? pickLatestWeekly(weeklyArchive.book),
-      });
-    } catch (e) {
-      setWeeklyLatest({
-        movie: pickLatestWeekly(weeklyArchive.movie),
-        music: pickLatestWeekly(weeklyArchive.music),
-        book: pickLatestWeekly(weeklyArchive.book),
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    loadWeeklyLatest();
-  }, [loadWeeklyLatest]);
-
-  useFocusEffect(
-  useCallback(() => {
-    let isMounted = true;
-
-    (async () => {
       try {
-        const [movie, music, book] = await Promise.all([
-          fetchLatestWeekly("movie"),
-          fetchLatestWeekly("music"),
-          fetchLatestWeekly("book"),
-        ]);
-
-        if (!isMounted) return;
-
-        setWeeklyLatest({
-          movie: movie ?? (weeklyArchive.movie[weeklyArchive.movie.length - 1] ?? null),
-          music: music ?? (weeklyArchive.music[weeklyArchive.music.length - 1] ?? null),
-          book: book ?? (weeklyArchive.book[weeklyArchive.book.length - 1] ?? null),
-        });
-      } catch {
-        if (!isMounted) return;
-        setWeeklyLatest({
-          movie: weeklyArchive.movie[weeklyArchive.movie.length - 1] ?? null,
-          music: weeklyArchive.music[weeklyArchive.music.length - 1] ?? null,
-          book: weeklyArchive.book[weeklyArchive.book.length - 1] ?? null,
-        });
+        storedName = await SecureStore.getItemAsync("userName");
+      } catch (e) {
+        console.log("SecureStore okunurken hata:", e);
       }
-    })();
 
-    return () => {
-      isMounted = false;
-    };
-  }, [])
-);
+      // SecureStore'da yoksa ya da web'de hata aldıysak AsyncStorage'tan dene
+      if (!storedName) {
+        try {
+          storedName = await AsyncStorage.getItem("userName");
+        } catch (e2) {
+          console.log("AsyncStorage okunurken hata:", e2);
+        }
+      }
 
-  // ✅ Home’da kullanılacak latest’ler (remote varsa remote; yoksa local)
+      if (storedName) setName(storedName);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  loadUser();
+}, []);
+
+  // ✅ Weekly verisini ekrana her dönüşte yenile (tek kaynak)
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+
+      (async () => {
+        try {
+          const [movie, music, book] = await Promise.all([
+            fetchLatestWeekly("movie"),
+            fetchLatestWeekly("music"),
+            fetchLatestWeekly("book"),
+          ]);
+
+          if (!isMounted) return;
+
+          setWeeklyLatest({
+            movie: movie ?? pickLatestWeekly(weeklyArchive.movie),
+            music: music ?? pickLatestWeekly(weeklyArchive.music),
+            book: book ?? pickLatestWeekly(weeklyArchive.book),
+          });
+        } catch {
+          if (!isMounted) return;
+          setWeeklyLatest({
+            movie: pickLatestWeekly(weeklyArchive.movie),
+            music: pickLatestWeekly(weeklyArchive.music),
+            book: pickLatestWeekly(weeklyArchive.book),
+          });
+        }
+      })();
+
+      return () => {
+        isMounted = false;
+      };
+    }, [])
+  );
+
+  // ✅ Home’da kullanılacak latest’ler
   const latestMovie = weeklyLatest?.movie ?? pickLatestWeekly(weeklyArchive.movie);
   const latestMusic = weeklyLatest?.music ?? pickLatestWeekly(weeklyArchive.music);
   const latestBook = weeklyLatest?.book ?? pickLatestWeekly(weeklyArchive.book);
 
   // Regl verilerini storage'dan okuyup cycleInfo'yu güncelleyen ortak fonksiyon
   const loadPeriodData = useCallback(async () => {
-    try {
-      const [settingsRaw, logsRaw] = await Promise.all([
-        getFirstExisting(PERIOD_SETTINGS_KEYS),
-        getFirstExisting(PERIOD_LOGS_KEYS),
-      ]);
+  try {
+    const [settingsRaw, logsRaw] = await Promise.all([
+      getFirstExisting(PERIOD_SETTINGS_KEYS),
+      getFirstExisting(PERIOD_LOGS_KEYS),
+    ]);
 
-      if (!settingsRaw || !logsRaw) {
-        setCycleInfo(null);
-        return;
-      }
+    console.log("🔴 PERIOD DEBUG - RAW values:", {
+      settingsRaw,
+      logsRaw,
+    });
 
-      const settings: PeriodSettings = JSON.parse(settingsRaw);
-      const logs: PeriodLog[] = JSON.parse(logsRaw);
-
-      if (!logs.length) {
-        setCycleInfo(null);
-        return;
-      }
-
-      const lastLog = logs[logs.length - 1];
-      const lastStart = new Date(lastLog.startDate);
-      const today = new Date();
-
-      const dayDiff = diffInDaysUTC(lastStart, today);
-      const cycleDay = dayDiff + 1;
-
-      if (cycleDay <= 0) {
-        setCycleInfo(null);
-        return;
-      }
-
-      const nextStart = addDays(lastStart, settings.averageCycleLength);
-      const nextPeriodDateText = formatDateTR(nextStart);
-
-      const { phaseLabel, phaseDescription } = getPhaseInfo(cycleDay, settings);
-
-      setCycleInfo({
-        cycleDay,
-        phaseLabel,
-        phaseDescription,
-        nextPeriodDateText,
-      });
-    } catch (e) {
-      console.log("Regl verileri yüklenirken hata:", e);
+    if (!settingsRaw || !logsRaw) {
+      console.log("🔴 PERIOD DEBUG - settings veya logs yok, cycleInfo null");
       setCycleInfo(null);
+      return;
     }
-  }, []);
 
-  useEffect(() => {
-    loadPeriodData();
-  }, [loadPeriodData]);
+    let settings: PeriodSettings;
+    let logs: PeriodLog[];
+
+    try {
+      settings = JSON.parse(settingsRaw);
+    } catch (e) {
+      console.log("❌ PERIOD DEBUG - settings JSON parse hatası:", e);
+      setCycleInfo(null);
+      return;
+    }
+
+    try {
+      const parsedLogs = JSON.parse(logsRaw);
+      // logs tek obje gelirse array'e çevir
+      if (Array.isArray(parsedLogs)) {
+        logs = parsedLogs;
+      } else if (parsedLogs && Array.isArray(parsedLogs.logs)) {
+        logs = parsedLogs.logs;
+      } else {
+        console.log(
+          "❌ PERIOD DEBUG - logs beklenen formatta değil:",
+          parsedLogs
+        );
+        setCycleInfo(null);
+        return;
+      }
+    } catch (e) {
+      console.log("❌ PERIOD DEBUG - logs JSON parse hatası:", e);
+      setCycleInfo(null);
+      return;
+    }
+
+    if (!logs.length) {
+      console.log("🔴 PERIOD DEBUG - logs array boş, cycleInfo null");
+      setCycleInfo(null);
+      return;
+    }
+
+    const lastLog = logs[logs.length - 1];
+    const lastStart = new Date(lastLog.startDate);
+    const today = new Date();
+
+    const dayDiff = diffInDaysUTC(lastStart, today);
+    const cycleDay = dayDiff + 1;
+
+    console.log("🔴 PERIOD DEBUG - lastStart, cycleDay:", {
+      lastStart: lastStart.toISOString(),
+      today: today.toISOString(),
+      dayDiff,
+      cycleDay,
+    });
+
+    if (cycleDay <= 0) {
+      console.log("🔴 PERIOD DEBUG - cycleDay <= 0, henüz başlamamış gibi");
+      setCycleInfo(null);
+      return;
+    }
+
+    const nextStart = addDays(lastStart, settings.averageCycleLength);
+    const nextPeriodDateText = formatDateTR(nextStart);
+
+    const { phaseLabel, phaseDescription } = getPhaseInfo(
+      cycleDay,
+      settings
+    );
+
+    console.log("🔴 PERIOD DEBUG - phase:", {
+      phaseLabel,
+      phaseDescription,
+      nextPeriodDateText,
+    });
+
+    setCycleInfo({
+      cycleDay,
+      phaseLabel,
+      phaseDescription,
+      nextPeriodDateText,
+    });
+  } catch (e) {
+    console.log("❌ Regl verileri yüklenirken genel hata:", e);
+    setCycleInfo(null);
+  }
+}, []);
 
   useFocusEffect(
-  useCallback(() => {
-    loadPeriodData();
-  }, [loadPeriodData])
-);
-
-    useEffect(() => {
-  loadLatestRemote();
-}, [loadLatestRemote]);
-
-useFocusEffect(
-  useCallback(() => {
-    loadLatestRemote();
-  }, [loadLatestRemote])
+    useCallback(() => {
+      loadPeriodData();
+    }, [loadPeriodData])
   );
 
-  // ✅ Su hatırlatıcısı
+  // ✅ latest remote: ilk açılış + her dönüş
+  useEffect(() => {
+    loadLatestRemote();
+  }, [loadLatestRemote]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadLatestRemote();
+    }, [loadLatestRemote])
+  );
+
+  // ✅ Su hatırlatıcısı (DAILY / süresiz)
   const handleWaterReminder = async () => {
     try {
       const ok = await ensureNotificationPermission();
@@ -675,8 +845,6 @@ useFocusEffect(
       }
 
       await ensureAndroidChannel();
-
-      // Bu gruba ait eskileri iptal et
       await cancelStoredNotifications(WATER_IDS_KEY);
 
       const times = [
@@ -692,7 +860,7 @@ useFocusEffect(
         const id = await Notifications.scheduleNotificationAsync({
           content: {
             title: "Su zamanı 💧",
-            body: "Bir bardak su içmeyi hatırladın mı?",
+            body: "Bir bardak su içme zamanı 🧡",
             sound: false,
             ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
           },
@@ -708,17 +876,14 @@ useFocusEffect(
 
       await AsyncStorage.setItem(WATER_IDS_KEY, JSON.stringify(ids));
 
-      Alert.alert(
-        "Tamamdır 💧",
-        "Her gün 4 saatte bir su hatırlatıcısı alacaksın."
-      );
+      Alert.alert("Tamamdır 💧", "Her gün 4 saatte bir su hatırlatıcısı alacaksın.");
     } catch (e) {
       console.log("Su bildirimi planlanırken hata:", e);
       Alert.alert("Hata", "Su hatırlatıcısı ayarlanırken bir sorun oluştu.");
     }
   };
 
-  // ✅ Günlük hareket hatırlatıcısı
+  // ✅ Günlük hareket hatırlatıcısı (DAILY / süresiz)
   const handleDailyMoveReminder = async () => {
     try {
       const ok = await ensureNotificationPermission();
@@ -728,8 +893,6 @@ useFocusEffect(
       }
 
       await ensureAndroidChannel();
-
-      // Bu gruba ait eskileri iptal et
       await cancelStoredNotifications(MOVE_IDS_KEY);
 
       const id = await Notifications.scheduleNotificationAsync({
@@ -755,7 +918,7 @@ useFocusEffect(
     }
   };
 
-  // ✅ Haftalık astroloji bildirimi (DATE trigger ile 12 hafta)
+  // ✅ Haftalık astroloji bildirimi (WEEKLY / süresiz)
   const scheduleWeeklyAstroReminder = async () => {
     try {
       const ok = await ensureNotificationPermission();
@@ -765,54 +928,29 @@ useFocusEffect(
       }
 
       await ensureAndroidChannel();
-
-      // Önce eski astro bildirimlerini temizle
       await cancelStoredNotifications(ASTRO_IDS_KEY);
 
-      const now = new Date();
+      // Expo: weekday 1=Sunday ... 7=Saturday
+      const sunday = 1;
 
-      // JS: getDay() -> 0 Pazar, 1 Pazartesi ... 6 Cumartesi
-      const targetDay = 0; // Pazar
-      const hour = 18;
-      const minute = 0;
+      const id = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Haftanın Astrolojik Yorumu 🔮",
+          body: "Yeni hafta için burç yorumlarını okumayı unutma.",
+          sound: false,
+          ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+          weekday: sunday,
+          hour: 18,
+          minute: 0,
+        },
+      });
 
-      const first = new Date(now);
-      const daysUntil = (targetDay - first.getDay() + 7) % 7;
+      await AsyncStorage.setItem(ASTRO_IDS_KEY, JSON.stringify([id]));
 
-      first.setDate(first.getDate() + daysUntil);
-      first.setHours(hour, minute, 0, 0);
-
-      // Eğer bugün Pazar ama saat geçtiyse, bir sonraki Pazara at
-      if (daysUntil === 0 && first.getTime() <= now.getTime()) {
-        first.setDate(first.getDate() + 7);
-      }
-
-      const weeks = 12;
-      const ids: string[] = [];
-
-      for (let i = 0; i < weeks; i++) {
-        const d = new Date(first);
-        d.setDate(first.getDate() + i * 7);
-
-        const id = await Notifications.scheduleNotificationAsync({
-          content: {
-            title: "Haftanın Astrolojik Yorumu 🔮",
-            body: "Yeni hafta için burç yorumlarını okumayı unutma.",
-            sound: false,
-            ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
-          },
-          trigger: {
-            type: Notifications.SchedulableTriggerInputTypes.DATE,
-            date: d,
-          },
-        });
-
-        ids.push(id);
-      }
-
-      await AsyncStorage.setItem(ASTRO_IDS_KEY, JSON.stringify(ids));
-
-      Alert.alert("Tamam ✨", `Önümüzdeki ${weeks} hafta için Pazar 18:00 bildirimi ayarlandı.`);
+      Alert.alert("Tamam ✨", "Her Pazar 18:00'de astroloji bildirimi alacaksın.");
     } catch (e) {
       console.log("Astroloji bildirimi planlanırken hata:", e);
       Alert.alert("Hata", "Astroloji bildirimi ayarlanırken bir sorun oluştu.");
@@ -821,27 +959,47 @@ useFocusEffect(
 
   // Kullanıcı adını kaydet
   const handleSaveName = async () => {
-    const trimmed = tempName.trim();
-    if (!trimmed) return;
+  const trimmed = tempName.trim();
+  if (!trimmed) return;
 
+  try {
+    // Asıl tercih: SecureStore (native için)
+    await SecureStore.setItemAsync("userName", trimmed);
+  } catch (e) {
+    console.log("SecureStore kaydederken hata, AsyncStorage'a düşüyoruz:", e);
     try {
-      await SecureStore.setItemAsync("userName", trimmed);
-      setName(trimmed);
-    } catch (e) {
-      console.log("İsim kaydedilirken hata:", e);
+      // Web için fallback
+      await AsyncStorage.setItem("userName", trimmed);
+    } catch (e2) {
+      console.log("AsyncStorage kaydederken hata:", e2);
     }
-  };
+  }
+
+  // ❗ Her durumda adı state'e yaz ki ekran ilerlesin
+  setName(trimmed);
+};
 
   const handleCategoryPress = (key: string) => {
     router.push(`/categories/${key}`);
   };
 
   // Su sayacını değiştir
+    // Su sayacını değiştir + AsyncStorage'a kaydet (günlük)
   const changeWaterCount = (delta: number) => {
+    const todayKey = getTodayKey();
+
     setWaterCount((prev: number) => {
-      const next = prev + delta;
-      if (next < 0) return 0;
-      if (next > WATER_GOAL) return WATER_GOAL;
+      let next = prev + delta;
+      if (next < 0) next = 0;
+      if (next > WATER_GOAL) next = WATER_GOAL;
+
+      AsyncStorage.setItem(
+        WATER_TRACK_KEY,
+        JSON.stringify({ date: todayKey, count: next })
+      ).catch((e) => {
+        console.log("Su sayacı kaydedilirken hata:", e);
+      });
+
       return next;
     });
   };
@@ -890,6 +1048,22 @@ useFocusEffect(
           style={styles.headerLogo}
         />
 
+        {/* ✅ OTA DEBUG KARTI (PROD’DA GİZLİ) */}
+        {showOtaDebug ? (
+          <View style={styles.otaCard}>
+            <Text style={styles.otaTitle}>OTA DEBUG</Text>
+            <Text style={styles.otaMono}>{otaDebug}</Text>
+
+            <Pressable style={styles.otaBtn} onPress={checkAndApplyOta}>
+              <Text style={styles.otaBtnText}>CHECK & APPLY OTA</Text>
+            </Pressable>
+
+            <Pressable style={styles.otaBtnSecondary} onPress={reloadOnly}>
+              <Text style={styles.otaBtnText}>RELOAD ONLY</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {/* Selamlama */}
         <View style={styles.greetingRow}>
           <View style={{ flex: 1 }}>
@@ -934,8 +1108,8 @@ useFocusEffect(
           <View style={styles.periodCard}>
             <Text style={styles.periodTitle}>Regl döngünü takip et</Text>
             <Text style={styles.periodText}>
-              Döngünü uygulamaya kaydettiğinde, burada her gün hangi fazda
-              olduğunu ve tahmini regl tarihini görebilirsin.
+              Döngünü uygulamaya kaydettiğinde burada her gün hangi fazda olduğunu ve
+              tahmini regl tarihini görebilirsin.
             </Text>
             <TouchableOpacity
               style={styles.periodButton}
@@ -983,8 +1157,8 @@ useFocusEffect(
           <View style={styles.smallCard}>
             <Text style={styles.smallCardTitle}>Hareket Et 🧘‍♀️</Text>
             <Text style={styles.smallCardText}>
-              En az 30 dakikalık hafif hareket planla: Kısa yürüyüş, esneme ya da
-              basit bir ev egzersizi olabilir.
+              En az 30 dakikalık hafif hareket planla: Kısa yürüyüş, esneme ya da basit
+              bir ev egzersizi olabilir.
             </Text>
 
             <TouchableOpacity
@@ -997,112 +1171,137 @@ useFocusEffect(
         </View>
 
         {/* Kategoriler */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Kategoriler</Text>
+<View style={styles.section}>
+  <Text style={styles.sectionTitle}>Kategoriler</Text>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.menuStoriesContent}
-          >
-            {categories.map((cat) => (
-              <TouchableOpacity
-                key={cat.key}
-                style={styles.menuItem}
-                onPress={() => handleCategoryPress(cat.key)}
-              >
-                <View style={styles.menuCircle}>
-                  <Text style={styles.menuEmoji}>{cat.emoji}</Text>
-                </View>
-                <Text style={styles.menuLabel}>{cat.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          {/* 🔮 Astroloji bildirimi butonu */}
-          <TouchableOpacity
-            style={styles.astroNotifyButton}
-            onPress={scheduleWeeklyAstroReminder}
-          >
-            <Text style={styles.astroNotifyButtonText}>
-              🔔 Haftalık Astroloji Bildirimini Aç
-            </Text>
-          </TouchableOpacity>
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    contentContainerStyle={styles.menuStoriesContent}
+  >
+    {categories.map((cat) => (
+      <TouchableOpacity
+        key={cat.key}
+        style={styles.menuItem}
+        onPress={() => handleCategoryPress(cat.key)}
+      >
+        <View style={styles.menuCircle}>
+          <Image
+            source={CATEGORY_ICONS[cat.key]}
+            style={styles.menuIcon}
+            resizeMode="cover"
+          />
         </View>
+
+        <Text style={styles.menuLabel}>{cat.label}</Text>
+      </TouchableOpacity>
+    ))}
+  </ScrollView>
+
+  {/* 🔥 Kalori hesaplama butonu */}
+<TouchableOpacity
+  style={styles.astroNotifyButton}
+  onPress={() => router.push("/calorie")}
+>
+  <Text style={styles.astroNotifyButtonText}>
+    🔥 Kalori Hesapla
+  </Text>
+</TouchableOpacity>
+</View>
+
 
         {/* Son eklenen içerikler + favori kalp */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Son eklenen içerikler</Text>
+          <Text style={styles.sectionTitle}>Son Eklenen İçerikler</Text>
 
           {latestRemoteLoading ? (
-  <View style={styles.center}>
-    <ActivityIndicator />
-  </View>
-) : latestRemote.length === 0 ? (
-  <View style={styles.contentCard}>
-    <Text style={styles.contentTitle}>Henüz içerik yok.</Text>
-  </View>
-) : (
-  latestRemote.map((article) => (
-    <View key={article.id} style={styles.contentCardRow}>
-      <Pressable
-        style={{ flex: 1 }}
-        onPress={() =>
-          router.push(article.slug ? `/article/${article.slug}` : `/article/${article.id}`)
-        }
-      >
-        <Text style={styles.contentCategory}>{article.categoryLabel}</Text>
-        <Text style={styles.contentTitle}>{article.title}</Text>
-      </Pressable>
-
-      <Pressable
-        onPress={() => toggleFavorite(article.id)}
-        style={styles.favoriteButton}
-      >
-        <Text style={styles.favoriteIcon}>{isFavorite(article.id) ? "💖" : "🤍"}</Text>
-      </Pressable>
+            <View style={styles.centerInline}>
+              <ActivityIndicator />
+            </View>
+          ) : latestRemote.length === 0 ? (
+            <View style={styles.contentCard}>
+              <Text style={styles.contentTitle}>Henüz içerik yok.</Text>
+            </View>
+          ) : (
+            latestRemote.map((article) => (
+              <View key={article.id} style={styles.contentCardRow}>
+                <Pressable
+  style={{ flex: 1 }}
+  onPress={() =>
+    router.push({
+      pathname: article.slug
+        ? `/article/${article.slug}`
+        : `/article/${article.id}`,
+      params: {
+        articleId: article.id,
+        initialTitle: article.title,
+        initialSummary: article.summary,
+        initialCoverUrl: article.coverUrl ?? "",
+      },
+    })
+  }
+>
+                  <View style={styles.latestRowTop}>
+  {article.categoryKey ? (
+    <View style={styles.latestIconWrap}>
+      <Image
+        source={CATEGORY_ICONS[article.categoryKey]}
+        style={styles.latestIcon}
+        resizeMode="cover"
+      />
     </View>
-  ))
-)}
+  ) : null}
+
+  <Text style={styles.latestCategoryText}>{article.categoryLabel}</Text>
+</View>
+
+<Text style={styles.contentTitle}>{article.title}</Text>
+                </Pressable>
+
+                <Pressable onPress={() => toggleFavorite(article.id)} style={styles.favoriteButton}>
+                  <Text style={styles.favoriteIcon}>
+                    {isFavorite(article.id) ? "💖" : "🤍"}
+                  </Text>
+                </Pressable>
+              </View>
+            ))
+          )}
         </View>
 
-        {/* Haftanın önerileri */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Haftanın önerileri</Text>
+        {/* Haftanın Önerileri */}
+<View style={styles.sectionHeaderRow}>
+  <Text style={styles.sectionTitle}>Haftanın Önerileri</Text>
+</View>
 
-          <Pressable style={styles.contentCard} onPress={() => router.push("/weekly/movie")}>
-            <Text style={styles.contentCategory}>Dizi / Film</Text>
-            <Text style={styles.contentTitle}>
-              {latestMovie?.teaser ?? "Bu hafta ilham veren bir yapım: ..."}
-            </Text>
-          </Pressable>
+  <Pressable style={styles.contentCard} onPress={() => router.push("/weekly/movie")}>
+    <View style={styles.weeklyRow}>
+      <Image source={WEEKLY_ICONS.movie} style={styles.weeklyIcon} resizeMode="contain" />
+      <Text style={styles.weeklyLabel}>Dizi / Film</Text>
+    </View>
+    <Text style={styles.contentTitle}>
+      {latestMovie?.teaser ?? "Bu hafta ilham veren bir yapım: ..."}
+    </Text>
+  </Pressable>
 
-          <Pressable style={styles.contentCard} onPress={() => router.push("/weekly/music")}>
-            <Text style={styles.contentCategory}>Müzik</Text>
-            <Text style={styles.contentTitle}>
-              {latestMusic?.teaser ?? "Ruhunu besleyecek bir müzik önerisi."}
-            </Text>
-          </Pressable>
+  <Pressable style={styles.contentCard} onPress={() => router.push("/weekly/music")}>
+    <View style={styles.weeklyRow}>
+      <Image source={WEEKLY_ICONS.music} style={styles.weeklyIcon} resizeMode="contain" />
+      <Text style={styles.weeklyLabel}>Müzik</Text>
+    </View>
+    <Text style={styles.contentTitle}>
+      {latestMusic?.teaser ?? "Ruhunu besleyecek bir müzik önerisi."}
+    </Text>
+  </Pressable>
 
-          <Pressable style={styles.contentCard} onPress={() => router.push("/weekly/book")}>
-            <Text style={styles.contentCategory}>Kitap</Text>
-            <Text style={styles.contentTitle}>
-              {latestBook?.teaser ?? "Sakin bir akşam için bir kitap."}
-            </Text>
-          </Pressable>
-        </View>
-
-        {/* Gizlilik */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Gizlilik</Text>
-
-          <Pressable style={styles.contentCard} onPress={() => router.push("/privacy")}>
-            <Text style={styles.contentCategory}>Gizlilik & KVKK</Text>
-            <Text style={styles.contentTitle}>
-              Verilerin sadece senin cihazında saklanır. Detaylar için dokun.
-            </Text>
-          </Pressable>
-        </View>
+  <Pressable style={styles.contentCard} onPress={() => router.push("/weekly/book")}>
+    <View style={styles.weeklyRow}>
+      <Image source={WEEKLY_ICONS.book} style={styles.weeklyIcon} resizeMode="contain" />
+      <Text style={styles.weeklyLabel}>Kitap</Text>
+    </View>
+    <Text style={styles.contentTitle}>
+      {latestBook?.teaser ?? "Sakin bir akşam için bir kitap."}
+    </Text>
+  </Pressable>
 
         {/* Çiçekli minik not */}
         <View style={styles.flowerNote}>
@@ -1119,8 +1318,7 @@ function getTodayMotivation(): string {
   const today = new Date().getTime();
   const diffDays = Math.floor((today - MOTIVATION_START_DATE) / (1000 * 60 * 60 * 24));
   const index =
-    ((diffDays % MOTIVATION_QUOTES.length) + MOTIVATION_QUOTES.length) %
-    MOTIVATION_QUOTES.length;
+    ((diffDays % MOTIVATION_QUOTES.length) + MOTIVATION_QUOTES.length) % MOTIVATION_QUOTES.length;
   return MOTIVATION_QUOTES[index];
 }
 
@@ -1139,6 +1337,49 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#FFF7F3",
   },
+  centerInline: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+
+  // ✅ OTA
+  otaCard: {
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#000000",
+    marginBottom: 12,
+  },
+  otaTitle: {
+    fontWeight: "800",
+    marginBottom: 6,
+    color: "#000000",
+  },
+  otaMono: {
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    color: "#000000",
+  },
+  otaBtn: {
+    marginTop: 10,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#000000",
+    alignItems: "center",
+  },
+  otaBtnSecondary: {
+    marginTop: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#444444",
+    alignItems: "center",
+  },
+  otaBtnText: {
+    color: "#FFFFFF",
+    fontWeight: "800",
+  },
+
   onboardingContainer: {
     flex: 1,
     justifyContent: "center",
@@ -1189,7 +1430,7 @@ const styles = StyleSheet.create({
     color: "#4A2E2A",
   },
   profileLink: {
-    fontSize: 13,
+    fontSize: 18,
     color: "#B0756F",
     fontWeight: "600",
     textDecorationLine: "underline",
@@ -1209,19 +1450,19 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   motivationText: {
-    fontSize: 15,
+    fontSize: 16,
     color: "#5A3A35",
   },
   contentCardRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-    borderRadius: 12,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#F3B6B3",
-    marginBottom: 10,
-  },
+  flexDirection: "row",
+  alignItems: "center",
+  padding: 16,                // ✅ biraz daha premium
+  borderRadius: 12,
+  backgroundColor: "#FFFFFF",
+  borderWidth: 1,
+  borderColor: "#F3B6B3",
+  marginBottom: 10,
+},
   favoriteButton: {
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -1230,17 +1471,17 @@ const styles = StyleSheet.create({
     fontSize: 22,
   },
   phaseMiniTitle: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: "600",
     color: "#4A2E2A",
     marginBottom: 4,
   },
   phaseMiniText: {
-    fontSize: 13,
+    fontSize: 14,
     color: "#5A3A35",
   },
   periodCard: {
-    padding: 14,
+    padding: 10,
     borderRadius: 16,
     backgroundColor: "#FDECF3",
     borderWidth: 1,
@@ -1248,30 +1489,30 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   periodTitle: {
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: "600",
     color: "#4A2E2A",
     marginBottom: 4,
   },
   periodText: {
-    fontSize: 13,
+    fontSize: 14,
     color: "#5A3A35",
     marginBottom: 6,
   },
   periodNext: {
-    fontSize: 12,
+    fontSize: 14,
     color: "#7A5852",
     marginBottom: 10,
   },
   periodButton: {
     alignSelf: "flex-start",
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 999,
     backgroundColor: "#F3B6D0",
   },
   periodButtonText: {
-    fontSize: 12,
+    fontSize: 16,
     color: "#FFFFFF",
     fontWeight: "600",
   },
@@ -1289,13 +1530,13 @@ const styles = StyleSheet.create({
     borderColor: "#F3B6B3",
   },
   smallCardTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "600",
     marginBottom: 6,
     color: "#4A2E2A",
   },
   smallCardText: {
-    fontSize: 13,
+    fontSize: 15,
     color: "#5A3A35",
     marginBottom: 8,
   },
@@ -1307,8 +1548,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   waterButton: {
-    width: 32,
-    height: 32,
+    width: 38,
+    height: 38,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "#F3B6B3",
@@ -1317,16 +1558,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF7F3",
   },
   waterButtonText: {
-    fontSize: 18,
+    fontSize: 14,
     color: "#4A2E2A",
   },
   waterCountText: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "700",
     color: "#4A2E2A",
   },
   reminderButton: {
-    marginTop: 4,
+    marginTop: 8,
     paddingVertical: 6,
     borderRadius: 12,
     backgroundColor: "#F3B6B3",
@@ -1338,46 +1579,52 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   moveReminderButton: {
-    marginTop: 30,
+    marginTop: 20,
   },
   section: {
     marginBottom: 20,
     marginTop: 4,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 12,
-    color: "#4A2E2A",
-  },
+  fontSize: 18,
+  fontWeight: "600",
+  marginBottom: 12,
+  color: "#4A2E2A",
+},
   menuStoriesContent: {
     paddingRight: 8,
   },
   menuItem: {
-    alignItems: "center",
-    marginRight: 12,
-  },
-  menuCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    borderWidth: 2,
-    borderColor: "#F3B6B3",
-    backgroundColor: "#FFFFFF",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  menuEmoji: {
-    fontSize: 28,
-  },
-  menuLabel: {
-    fontSize: 11,
-    color: "#4A2E2A",
-    textAlign: "center",
-  },
+  alignItems: "center",
+  marginRight: 12,
+},
+
+menuCircle: {
+  width: 88,                  // ✅ büyüdü (64 → 72)
+  height: 72,
+  borderRadius: 36,
+  overflow: "hidden",
+  alignItems: "center",
+  justifyContent: "center",
+  backgroundColor: "#fff",
+  borderWidth: 1,
+  borderColor: "#f0c6c6",
+},
+
+menuIcon: {
+  width: "100%",              // ✅ TEK tanım (çakışma yok)
+  height: "100%",
+},
+
+menuLabel: {
+  fontSize: 14,               // ✅ büyüdü
+  fontWeight: "700",
+  marginTop: 6,
+  textAlign: "center",
+  color: "#4A2E2A",
+},
   contentCard: {
-    padding: 14,
+    padding: 12,
     borderRadius: 12,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
@@ -1385,21 +1632,21 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   contentCategory: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: "600",
     marginBottom: 4,
     color: "#B0756F",
   },
   contentTitle: {
-    fontSize: 15,
+    fontSize: 16,
     color: "#4A2E2A",
   },
   flowerNote: {
     marginTop: 8,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   flowerText: {
-    fontSize: 14,
+    fontSize: 16,
     color: "#6B4A44",
     textAlign: "center",
   },
@@ -1411,8 +1658,55 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   astroNotifyButtonText: {
-    fontSize: 13,
+    fontSize: 16,
     color: "#FFFFFF",
     fontWeight: "700",
   },
+latestIconWrap: {
+  width: 28,                  // ✅ büyüdü (22 → 28)
+  height: 28,
+  borderRadius: 14,
+  overflow: "hidden",
+  backgroundColor: "#fff",
+  borderWidth: 1,
+  borderColor: "#F3B6B3",
+},
+
+latestIcon: {
+  width: "100%",
+  height: "100%",
+},
+latestCategoryText: {
+  fontSize: 16,               // ✅ büyüdü
+  fontWeight: "700",
+  color: "#B0756F",
+},
+weeklyRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 10,
+  marginBottom: 8,
+},
+
+weeklyIcon: {
+  width: 30,                  // ✅ büyüdü (24 → 30)
+  height: 30,
+},
+
+weeklyLabel: {
+  fontSize: 16,               // ✅ büyüdü (15 → 16)
+  fontWeight: "800",
+  color: "#B0756F",
+},
+sectionHeaderRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "flex-start",
+},
+latestRowTop: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 10,
+  marginBottom: 6,
+},
 });
