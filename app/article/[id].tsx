@@ -17,12 +17,8 @@ import {
 import RenderHTML from "react-native-render-html";
 import { publicStorageUrl, sbGetMany } from "../../lib/supabase";
 
-// 🔹 AdMob
-import {
-  BannerAd,
-  BannerAdSize,
-  TestIds,
-} from "react-native-google-mobile-ads";
+// 🔹 AdBanner (web-safe wrapper)
+import AdBanner from "../_ui/AdBanner";
 
 // Local içerikler
 import { articles as localArticles } from "../../data/content";
@@ -174,11 +170,6 @@ function enc(v: string) {
   return encodeURIComponent(v);
 }
 
-// 🔹 Banner için ID (DEV'de test, prod'da gerçek ID)
-const BANNER_AD_UNIT_ID = __DEV__
-  ? TestIds.BANNER
-  : "ca-app-pub-9133000462142645/6014393282";
-
 // Local text'i düzgün göstermek için (satır sonlarını korur)
 function TextBlock({ text }: { text: string }) {
   const lines = useMemo(() => String(text ?? "").split("\n"), [text]);
@@ -198,13 +189,7 @@ function TextBlock({ text }: { text: string }) {
 function ArticleBannerAd() {
   return (
     <View style={styles.adContainer}>
-      <BannerAd
-        unitId={BANNER_AD_UNIT_ID}
-        size={BannerAdSize.ADAPTIVE_BANNER}
-        requestOptions={{
-          requestNonPersonalizedAdsOnly: true,
-        }}
-      />
+      <AdBanner />
     </View>
   );
 }
@@ -526,7 +511,6 @@ export default function ArticleScreen() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeId, articleIdParam, initialTitle, initialSummary, initialCoverUrl]);
 
   const hasHtml =
