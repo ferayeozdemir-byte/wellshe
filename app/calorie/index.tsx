@@ -14,6 +14,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import AdBanner from "../../components/AdBanner";
 import { callEdgeFunction } from "../../lib/supabase";
 
 type Sex = "female" | "male";
@@ -249,10 +250,10 @@ export default function CalorieScreen() {
   const addQuickFood = (q: { name: string; kcalPer100g: number; unit?: "g" | "ml" }) => {
     setFoodName(q.name);
     setKcalPer100gText(String(q.kcalPer100g));
-    setGramUnit(q.unit ?? "g");   // ⭐️ burada ayarlıyoruz
+    setGramUnit(q.unit ?? "g"); // ⭐️ burada ayarlıyoruz
     if (!gramsText.trim()) setGramsText("100");
     setKcalDirectText("");
-};
+  };
 
   const clearToday = () => {
     Alert.alert(
@@ -273,261 +274,344 @@ export default function CalorieScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <ScrollView contentContainerStyle={styles.container}>
-          {/* Üst başlık */}
-          <View style={styles.headerCard}>
-            <Text style={styles.title}>Kalori</Text>
-            <Text style={styles.subtitle}>
-              Günlük hedefinizi hesaplayın ve yediklerinizi ekleyerek toplam kaloriyi takip edin.
-            </Text>
+        {/* 🔹 İçeriği ve banner'ı saran container */}
+        <View style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={styles.container}>
+            {/* Üst başlık */}
+            <View style={styles.headerCard}>
+              <Text style={styles.title}>Kalori</Text>
+              <Text style={styles.subtitle}>
+                Günlük hedefinizi hesaplayın ve yediklerinizi ekleyerek toplam kaloriyi takip edin.
+              </Text>
 
-            <View style={styles.segmentRow}>
-              <SegmentButton text="Takip" active={mode === "track"} onPress={() => setMode("track")} />
-              <SegmentButton text="Hesapla" active={mode === "calc"} onPress={() => setMode("calc")} />
+              <View style={styles.segmentRow}>
+                <SegmentButton
+                  text="Takip"
+                  active={mode === "track"}
+                  onPress={() => setMode("track")}
+                />
+                <SegmentButton
+                  text="Hesapla"
+                  active={mode === "calc"}
+                  onPress={() => setMode("calc")}
+                />
+              </View>
             </View>
-          </View>
 
-          {mode === "track" ? (
-            <>
-              {/* Özet kartı */}
-              <View style={styles.card}>
-                <View style={styles.summaryRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sectionTitle}>Bugün</Text>
-                    <Text style={styles.muted}>Tarih: {todayKey()}</Text>
+            {mode === "track" ? (
+              <>
+                {/* Özet kartı */}
+                <View style={styles.card}>
+                  <View style={styles.summaryRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.sectionTitle}>Bugün</Text>
+                      <Text style={styles.muted}>Tarih: {todayKey()}</Text>
+                    </View>
+
+                    <Pressable onPress={clearToday} style={styles.secondaryBtn}>
+                      <Text style={styles.secondaryBtnText}>Sıfırla</Text>
+                    </Pressable>
                   </View>
 
-                  <Pressable onPress={clearToday} style={styles.secondaryBtn}>
-                    <Text style={styles.secondaryBtnText}>Sıfırla</Text>
-                  </Pressable>
+                  <View style={styles.summaryNumbersRow}>
+                    <SummaryBox label="Aldığınız" value={`${totalKcal} kcal`} />
+                    <SummaryBox
+                      label="Hedef"
+                      value={`${computed?.recommended ?? "-"} kcal`}
+                    />
+                    <SummaryBox
+                      label="Kalan"
+                      value={
+                        remaining === null
+                          ? "-"
+                          : remaining >= 0
+                          ? `${remaining} kcal`
+                          : `${Math.abs(remaining)} kcal (aştı)`
+                      }
+                      emphasize={remaining !== null && remaining < 0}
+                    />
+                  </View>
+
+                  {!computed?.recommended ? (
+                    <Text style={styles.infoText}>
+                      Hedefinizi görmek için “Hesapla” sekmesinden bilgilerinizi girin.
+                    </Text>
+                  ) : null}
                 </View>
 
-                <View style={styles.summaryNumbersRow}>
-                  <SummaryBox label="Aldığınız" value={`${totalKcal} kcal`} />
-                  <SummaryBox label="Hedef" value={`${computed?.recommended ?? "-"} kcal`} />
-                  <SummaryBox
-                    label="Kalan"
-                    value={
-                      remaining === null
-                        ? "-"
-                        : remaining >= 0
-                        ? `${remaining} kcal`
-                        : `${Math.abs(remaining)} kcal (aştı)`
-                    }
-                    emphasize={remaining !== null && remaining < 0}
+                {/* ✅ Bugünün listesi (ÜSTE ALINDI) */}
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>Bugün Yediklerin</Text>
+
+                  {items.length === 0 ? (
+                    <Text style={styles.muted}>
+                      Henüz bir şey eklemedin. İlk besinini ekle 🌸
+                    </Text>
+                  ) : (
+                    <View style={{ gap: 10, marginTop: 10 }}>
+                      {items.map((it) => (
+                        <View key={it.id} style={styles.foodRow}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.foodName}>{it.name}</Text>
+                            {it.grams && it.kcalPer100g ? (
+                              <Text style={styles.foodMeta}>
+                                {it.grams} g • {it.kcalPer100g} /100g
+                              </Text>
+                            ) : (
+                              <Text style={styles.foodMeta}>Direkt giriş</Text>
+                            )}
+                          </View>
+
+                          <View style={styles.foodRight}>
+                            <Text style={styles.foodKcal}>{it.kcalTotal} kcal</Text>
+                            <Pressable onPress={() => removeItem(it.id)}>
+                              <Text style={styles.deleteText}>Sil</Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {/* Besin ekleme */}
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>Besin Ekle</Text>
+
+                  <Text style={styles.label}>Besin adı</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="örn. tavuk göğsü"
+                    placeholderTextColor="#B88C86"
+                    value={foodName}
+                    onChangeText={setFoodName}
                   />
+
+                  <View style={styles.twoColRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>
+                        {gramUnit === "ml" ? "Miktar (ml)" : "Gram"}
+                      </Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="örn. 150"
+                        placeholderTextColor="#B88C86"
+                        keyboardType="numeric"
+                        value={gramsText}
+                        onChangeText={(t) => setGramsText(onlyDigits(t))}
+                      />
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>Kalori / 100g</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="örn. 165"
+                        placeholderTextColor="#B88C86"
+                        keyboardType="numeric"
+                        value={kcalPer100gText}
+                        onChangeText={(t) => setKcalPer100gText(onlyDigits(t))}
+                      />
+                    </View>
+                  </View>
+
+                  <Text style={styles.orText}>veya</Text>
+
+                  <Text style={styles.label}>Toplam Kalori (Direkt)</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="örn. 320"
+                    placeholderTextColor="#B88C86"
+                    keyboardType="numeric"
+                    value={kcalDirectText}
+                    onChangeText={(t) => setKcalDirectText(onlyDigits(t))}
+                  />
+
+                  <Pressable style={styles.primaryBtn} onPress={addFood}>
+                    <Text style={styles.primaryBtnText}>Ekle</Text>
+                  </Pressable>
+
+                  <Text style={styles.smallMuted}>
+                    Not: “Toplam kalori” girersen gram/100g alanları dikkate alınmaz.
+                  </Text>
                 </View>
 
-                {!computed?.recommended ? (
-                  <Text style={styles.infoText}>
-                    Hedefinizi görmek için “Hesapla” sekmesinden bilgilerinizi girin.
-                  </Text>
-                ) : null}
-              </View>
-
-              {/* ✅ Bugünün listesi (ÜSTE ALINDI) */}
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Bugün Yediklerin</Text>
-
-                {items.length === 0 ? (
+                {/* Hızlı seçim */}
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>Hızlı Ekleme</Text>
                   <Text style={styles.muted}>
-                    Henüz bir şey eklemedin. İlk besinini ekle 🌸
+                    Birini seçip gramı ayarla, sonra “Ekle” de.
                   </Text>
-                ) : (
-                  <View style={{ gap: 10, marginTop: 10 }}>
-                    {items.map((it) => (
-                      <View key={it.id} style={styles.foodRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.foodName}>{it.name}</Text>
-                          {it.grams && it.kcalPer100g ? (
-                            <Text style={styles.foodMeta}>
-                              {it.grams} g • {it.kcalPer100g} /100g
-                            </Text>
-                          ) : (
-                            <Text style={styles.foodMeta}>Direkt giriş</Text>
-                          )}
-                        </View>
 
-                        <View style={styles.foodRight}>
-                          <Text style={styles.foodKcal}>{it.kcalTotal} kcal</Text>
-                          <Pressable onPress={() => removeItem(it.id)}>
-                            <Text style={styles.deleteText}>Sil</Text>
-                          </Pressable>
-                        </View>
-                      </View>
+                  <View style={styles.quickWrap}>
+                    {QUICK_FOODS.map((q) => (
+                      <Pressable
+                        key={q.name}
+                        onPress={() => addQuickFood(q)}
+                        style={styles.quickChip}
+                      >
+                        <Text style={styles.quickChipText}>{q.name}</Text>
+                        <Text style={styles.quickChipSub}>
+                          {q.kcalPer100g} /100g
+                        </Text>
+                      </Pressable>
                     ))}
                   </View>
-                )}
-              </View>
+                </View>
+              </>
+            ) : (
+              <>
+                {/* Hesap ekranı */}
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>Günlük hedefini hesapla</Text>
 
-              {/* Besin ekleme */}
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Besin Ekle</Text>
-
-                <Text style={styles.label}>Besin adı</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="örn. tavuk göğsü"
-                  placeholderTextColor="#B88C86"
-                  value={foodName}
-                  onChangeText={setFoodName}
-                />
-
-                <View style={styles.twoColRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>{gramUnit === "ml" ? "Miktar (ml)" : "Gram"}</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="örn. 150"
-                      placeholderTextColor="#B88C86"
-                      keyboardType="numeric"
-                      value={gramsText}
-                      onChangeText={(t) => setGramsText(onlyDigits(t))}
+                  <Text style={styles.label}>Cinsiyet</Text>
+                  <View style={styles.segmentRow}>
+                    <SegmentButton
+                      text="Kadın"
+                      active={sex === "female"}
+                      onPress={() => setSex("female")}
+                    />
+                    <SegmentButton
+                      text="Erkek"
+                      active={sex === "male"}
+                      onPress={() => setSex("male")}
                     />
                   </View>
 
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>Kalori / 100g</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="örn. 165"
-                      placeholderTextColor="#B88C86"
-                      keyboardType="numeric"
-                      value={kcalPer100gText}
-                      onChangeText={(t) => setKcalPer100gText(onlyDigits(t))}
-                    />
+                  <View style={styles.twoColRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>Yaş</Text>
+                      <TextInput
+                        style={styles.input}
+                        keyboardType="numeric"
+                        value={age}
+                        onChangeText={(t) => setAge(onlyDigits(t))}
+                        placeholder="örn. 30"
+                        placeholderTextColor="#B88C86"
+                      />
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>Boy (cm)</Text>
+                      <TextInput
+                        style={styles.input}
+                        keyboardType="numeric"
+                        value={heightCm}
+                        onChangeText={(t) => setHeightCm(onlyDigits(t))}
+                        placeholder="örn. 165"
+                        placeholderTextColor="#B88C86"
+                      />
+                    </View>
                   </View>
-                </View>
 
-                <Text style={styles.orText}>veya</Text>
+                  <Text style={styles.label}>Kilo (kg)</Text>
+                  <TextInput
+                    style={styles.input}
+                    keyboardType="numeric"
+                    value={weightKg}
+                    onChangeText={(t) => setWeightKg(onlyDigits(t))}
+                    placeholder="örn. 60"
+                    placeholderTextColor="#B88C86"
+                  />
 
-                <Text style={styles.label}>Toplam Kalori (Direkt)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="örn. 320"
-                  placeholderTextColor="#B88C86"
-                  keyboardType="numeric"
-                  value={kcalDirectText}
-                  onChangeText={(t) => setKcalDirectText(onlyDigits(t))}
-                />
-
-                <Pressable style={styles.primaryBtn} onPress={addFood}>
-                  <Text style={styles.primaryBtnText}>Ekle</Text>
-                </Pressable>
-
-                <Text style={styles.smallMuted}>
-                  Not: “Toplam kalori” girersen gram/100g alanları dikkate alınmaz.
-                </Text>
-              </View>
-
-              {/* Hızlı seçim */}
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Hızlı Ekleme</Text>
-                <Text style={styles.muted}>
-                  Birini seçip gramı ayarla, sonra “Ekle” de.
-                </Text>
-
-                <View style={styles.quickWrap}>
-                  {QUICK_FOODS.map((q) => (
-                    <Pressable key={q.name} onPress={() => addQuickFood(q)} style={styles.quickChip}>
-                      <Text style={styles.quickChipText}>{q.name}</Text>
-                      <Text style={styles.quickChipSub}>{q.kcalPer100g} /100g</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            </>
-          ) : (
-            <>
-              {/* Hesap ekranı */}
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Günlük hedefini hesapla</Text>
-
-                <Text style={styles.label}>Cinsiyet</Text>
-                <View style={styles.segmentRow}>
-                  <SegmentButton text="Kadın" active={sex === "female"} onPress={() => setSex("female")} />
-                  <SegmentButton text="Erkek" active={sex === "male"} onPress={() => setSex("male")} />
-                </View>
-
-                <View style={styles.twoColRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>Yaş</Text>
-                    <TextInput
-                      style={styles.input}
-                      keyboardType="numeric"
-                      value={age}
-                      onChangeText={(t) => setAge(onlyDigits(t))}
-                      placeholder="örn. 30"
-                      placeholderTextColor="#B88C86"
+                  <Text style={styles.label}>Aktivite</Text>
+                  <View style={styles.wrap}>
+                    <Chip
+                      text="Hareketsiz"
+                      active={activity === "sedentary"}
+                      onPress={() => setActivity("sedentary")}
+                    />
+                    <Chip
+                      text="Hafif"
+                      active={activity === "light"}
+                      onPress={() => setActivity("light")}
+                    />
+                    <Chip
+                      text="Orta"
+                      active={activity === "moderate"}
+                      onPress={() => setActivity("moderate")}
+                    />
+                    <Chip
+                      text="Aktif"
+                      active={activity === "active"}
+                      onPress={() => setActivity("active")}
+                    />
+                    <Chip
+                      text="Çok aktif"
+                      active={activity === "very_active"}
+                      onPress={() => setActivity("very_active")}
                     />
                   </View>
 
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>Boy (cm)</Text>
-                    <TextInput
-                      style={styles.input}
-                      keyboardType="numeric"
-                      value={heightCm}
-                      onChangeText={(t) => setHeightCm(onlyDigits(t))}
-                      placeholder="örn. 165"
-                      placeholderTextColor="#B88C86"
+                  <Text style={styles.label}>Hedef</Text>
+                  <View style={styles.segmentRow}>
+                    <SegmentButton
+                      text="Koruma"
+                      active={goal === "maintain"}
+                      onPress={() => setGoal("maintain")}
+                    />
+                    <SegmentButton
+                      text="Kilo verme"
+                      active={goal === "lose"}
+                      onPress={() => setGoal("lose")}
+                    />
+                    <SegmentButton
+                      text="Kilo alma"
+                      active={goal === "gain"}
+                      onPress={() => setGoal("gain")}
                     />
                   </View>
                 </View>
 
-                <Text style={styles.label}>Kilo (kg)</Text>
-                <TextInput
-                  style={styles.input}
-                  keyboardType="numeric"
-                  value={weightKg}
-                  onChangeText={(t) => setWeightKg(onlyDigits(t))}
-                  placeholder="örn. 60"
-                  placeholderTextColor="#B88C86"
-                />
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>Sonuç</Text>
 
-                <Text style={styles.label}>Aktivite</Text>
-                <View style={styles.wrap}>
-                  <Chip text="Hareketsiz" active={activity === "sedentary"} onPress={() => setActivity("sedentary")} />
-                  <Chip text="Hafif" active={activity === "light"} onPress={() => setActivity("light")} />
-                  <Chip text="Orta" active={activity === "moderate"} onPress={() => setActivity("moderate")} />
-                  <Chip text="Aktif" active={activity === "active"} onPress={() => setActivity("active")} />
-                  <Chip text="Çok aktif" active={activity === "very_active"} onPress={() => setActivity("very_active")} />
-                </View>
-
-                <Text style={styles.label}>Hedef</Text>
-                <View style={styles.segmentRow}>
-                  <SegmentButton text="Koruma" active={goal === "maintain"} onPress={() => setGoal("maintain")} />
-                  <SegmentButton text="Kilo verme" active={goal === "lose"} onPress={() => setGoal("lose")} />
-                  <SegmentButton text="Kilo alma" active={goal === "gain"} onPress={() => setGoal("gain")} />
-                </View>
-              </View>
-
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Sonuç</Text>
-
-                {!computed ? (
-                  <Text style={styles.muted}>
-                    Lütfen değerleri kontrol edin (yaş, boy, kilo geçerli aralıkta olmalı).
-                  </Text>
-                ) : (
-                  <>
-                    <ResultRow label="BMR (bazal metabolizma)" value={`${computed.bmr} kcal`} />
-                    <ResultRow label="TDEE (günlük toplam ihtiyaç)" value={`${computed.tdee} kcal`} />
-                    <View style={styles.divider} />
-                    <ResultRow label="Önerilen günlük hedef" value={`${computed.recommended} kcal`} bold />
-                    <Text style={styles.smallMuted}>
-                      Bu hesaplama genel bir tahmindir. Sağlık durumunuza göre profesyonel görüş daha doğru olur.
+                  {!computed ? (
+                    <Text style={styles.muted}>
+                      Lütfen değerleri kontrol edin (yaş, boy, kilo geçerli aralıkta olmalı).
                     </Text>
+                  ) : (
+                    <>
+                      <ResultRow
+                        label="BMR (bazal metabolizma)"
+                        value={`${computed.bmr} kcal`}
+                      />
+                      <ResultRow
+                        label="TDEE (günlük toplam ihtiyaç)"
+                        value={`${computed.tdee} kcal`}
+                      />
+                      <View style={styles.divider} />
+                      <ResultRow
+                        label="Önerilen günlük hedef"
+                        value={`${computed.recommended} kcal`}
+                        bold
+                      />
+                      <Text style={styles.smallMuted}>
+                        Bu hesaplama genel bir tahmindir. Sağlık durumunuza göre
+                        profesyonel görüş daha doğru olur.
+                      </Text>
 
-                    <Pressable style={styles.primaryBtn} onPress={() => setMode("track")}>
-                      <Text style={styles.primaryBtnText}>Kaydet ve Takibe Geç</Text>
-                    </Pressable>
-                  </>
-                )}
-              </View>
-            </>
-          )}
-        </ScrollView>
+                      <Pressable
+                        style={styles.primaryBtn}
+                        onPress={() => setMode("track")}
+                      >
+                        <Text style={styles.primaryBtnText}>
+                          Kaydet ve Takibe Geç
+                        </Text>
+                      </Pressable>
+                    </>
+                  )}
+                </View>
+              </>
+            )}
+          </ScrollView>
+
+          {/* 🔻 Sayfanın en altında reklam banner’ı */}
+          <View style={styles.adContainer}>
+            <AdBanner />
+          </View>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -543,16 +627,34 @@ function SegmentButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={[styles.segmentBtn, active && styles.segmentBtnActive]}>
-      <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{text}</Text>
+    <Pressable
+      onPress={onPress}
+      style={[styles.segmentBtn, active && styles.segmentBtnActive]}
+    >
+      <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
+        {text}
+      </Text>
     </Pressable>
   );
 }
 
-function Chip({ text, active, onPress }: { text: string; active?: boolean; onPress: () => void }) {
+function Chip({
+  text,
+  active,
+  onPress,
+}: {
+  text: string;
+  active?: boolean;
+  onPress: () => void;
+}) {
   return (
-    <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
-      <Text style={[styles.chipText, active && styles.chipTextActive]}>{text}</Text>
+    <Pressable
+      onPress={onPress}
+      style={[styles.chip, active && styles.chipActive]}
+    >
+      <Text style={[styles.chipText, active && styles.chipTextActive]}>
+        {text}
+      </Text>
     </Pressable>
   );
 }
@@ -569,16 +671,36 @@ function SummaryBox({
   return (
     <View style={[styles.summaryBox, emphasize && styles.summaryBoxWarn]}>
       <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={[styles.summaryValue, emphasize && { color: "#8B1E2D" }]}>{value}</Text>
+      <Text
+        style={[styles.summaryValue, emphasize && { color: "#8B1E2D" }]}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
 
-function ResultRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
+function ResultRow({
+  label,
+  value,
+  bold,
+}: {
+  label: string;
+  value: string;
+  bold?: boolean;
+}) {
   return (
     <View style={styles.resultRow}>
-      <Text style={[styles.resultLabel, bold && { fontWeight: "800" }]}>{label}</Text>
-      <Text style={[styles.resultValue, bold && { fontWeight: "900" }]}>{value}</Text>
+      <Text
+        style={[styles.resultLabel, bold && { fontWeight: "800" }]}
+      >
+        {label}
+      </Text>
+      <Text
+        style={[styles.resultValue, bold && { fontWeight: "900" }]}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -605,12 +727,28 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  sectionTitle: { fontSize: 18, fontWeight: "700", color: "#4A2E2A", marginBottom: 10 },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#4A2E2A",
+    marginBottom: 10,
+  },
   muted: { fontSize: 13, color: "#6B4A44", opacity: 0.9 },
-  smallMuted: { fontSize: 12, color: "#6B4A44", opacity: 0.9, marginTop: 10, lineHeight: 16 },
+  smallMuted: {
+    fontSize: 12,
+    color: "#6B4A44",
+    opacity: 0.9,
+    marginTop: 10,
+    lineHeight: 16,
+  },
   infoText: { fontSize: 13, color: "#6B4A44", marginTop: 10 },
 
-  label: { fontSize: 13, fontWeight: "700", color: "#4A2E2A", marginBottom: 6 },
+  label: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#4A2E2A",
+    marginBottom: 6,
+  },
   input: {
     borderWidth: 1,
     borderColor: "#F3B6B3",
@@ -624,7 +762,12 @@ const styles = StyleSheet.create({
   },
 
   twoColRow: { flexDirection: "row", gap: 10 },
-  wrap: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 8 },
+  wrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 8,
+  },
 
   segmentRow: { flexDirection: "row", gap: 10, marginTop: 10 },
   segmentBtn: {
@@ -672,11 +815,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#F3B6B3",
   },
-  secondaryBtnText: { color: "#4A2E2A", fontWeight: "800", fontSize: 13 },
+  secondaryBtnText: {
+    color: "#4A2E2A",
+    fontWeight: "800",
+    fontSize: 13,
+  },
 
-  orText: { textAlign: "center", marginVertical: 6, color: "#6B4A44", fontWeight: "700" },
+  orText: {
+    textAlign: "center",
+    marginVertical: 6,
+    color: "#6B4A44",
+    fontWeight: "700",
+  },
 
-  summaryRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  summaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   summaryNumbersRow: { flexDirection: "row", gap: 10, marginTop: 12 },
   summaryBox: {
     flex: 1,
@@ -689,10 +845,20 @@ const styles = StyleSheet.create({
   summaryBoxWarn: {
     borderColor: "#8B1E2D",
   },
-  summaryLabel: { fontSize: 12, color: "#6B4A44", fontWeight: "700", marginBottom: 4 },
+  summaryLabel: {
+    fontSize: 12,
+    color: "#6B4A44",
+    fontWeight: "700",
+    marginBottom: 4,
+  },
   summaryValue: { fontSize: 14, color: "#4A2E2A", fontWeight: "900" },
 
-  quickWrap: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 10 },
+  quickWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 10,
+  },
   quickChip: {
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -719,8 +885,25 @@ const styles = StyleSheet.create({
   foodKcal: { fontSize: 14, fontWeight: "900", color: "#B0756F" },
   deleteText: { fontSize: 13, fontWeight: "800", color: "#8B1E2D" },
 
-  resultRow: { flexDirection: "row", justifyContent: "space-between", gap: 10, paddingVertical: 6 },
+  resultRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingVertical: 6,
+  },
   resultLabel: { fontSize: 13, color: "#6B4A44", flex: 1 },
   resultValue: { fontSize: 14, fontWeight: "800", color: "#4A2E2A" },
-  divider: { height: 1, backgroundColor: "rgba(0,0,0,0.08)", marginVertical: 8 },
+  divider: {
+    height: 1,
+    backgroundColor: "rgba(0,0,0,0.08)",
+    marginVertical: 8,
+  },
+
+  // 🔻 Banner alanı
+  adContainer: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+    alignItems: "center",
+    backgroundColor: "#FFF7F3",
+  },
 });

@@ -27,6 +27,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import AdBanner from "../../components/AdBanner";
 import { type CategoryId } from "../../data/content";
 import { weeklyArchive, type WeeklyItem } from "../../data/weekly";
 import { fetchLatestArticlesRemote } from "../../lib/categoriesRemote";
@@ -1370,11 +1371,16 @@ export default function HomeScreen() {
           </Text>
         </Pressable>
 
-        {/* Çiçekli minik not */}
+                {/* Çiçekli minik not */}
         <View style={styles.flowerNote}>
           <Text style={styles.flowerText}>
             🌸 Unutma, kendine iyi bakmak lüks değil; temel ihtiyaç.
           </Text>
+        </View>
+
+        {/* Reklam Banner (Home) */}
+        <View style={styles.homeAdContainer}>
+          <AdBanner />
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -1771,6 +1777,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
     color: "#B0756F",
+  },
+    homeAdContainer: {
+    marginTop: 8,
+    marginBottom: 4,
+    alignItems: "center",
   },
   sectionHeaderRow: {
     flexDirection: "row",
