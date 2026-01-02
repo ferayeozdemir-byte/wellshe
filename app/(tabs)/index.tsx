@@ -33,6 +33,7 @@ import { fetchLatestArticlesRemote } from "../../lib/categoriesRemote";
 import { fetchLatestWeekly } from "../../lib/weeklyRemote";
 import { CATEGORY_ICONS, type CategoryKey } from "../_ui/categoryIcons";
 import { WEEKLY_ICONS } from "../_ui/weeklyIcons";
+import SponsorSplash from "../components/SponsorSplash";
 
 const FAVORITES_KEY = "favorite_articles";
 
@@ -371,6 +372,8 @@ function getTodayMotivation(): string {
 }
 
 export default function HomeScreen() {
+  const [showSponsor, setShowSponsor] = useState(true);
+
   // Home mount log
   useEffect(() => {
     console.log("HOME INDEX LOADED ✅", new Date().toISOString());
@@ -1021,6 +1024,11 @@ export default function HomeScreen() {
         <ActivityIndicator />
       </View>
     );
+  }
+
+  // ✅ İsim kayıtlıysa önce sponsor ekranını göster
+  if (showSponsor && name) {
+    return <SponsorSplash onDone={() => setShowSponsor(false)} />;
   }
 
   // İsim henüz yoksa

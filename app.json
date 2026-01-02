@@ -34,7 +34,7 @@
 
     "android": {
       "package": "com.feraye.wellshe",
-      "versionCode": 6,
+      "versionCode": 7,
       "permissions": [
         "com.google.android.gms.permission.AD_ID"
      ],
