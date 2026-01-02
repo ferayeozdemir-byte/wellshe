@@ -1,52 +1,101 @@
-// components/SponsorSplash.tsx
-import React, { useEffect } from "react";
-import { Dimensions, Image, StyleSheet, Text, View } from "react-native";
+// app/components/SponsorSplash.tsx
 
-const { width } = Dimensions.get("window");
-const FONT_SIZE = width < 380 ? 16 : 18; // küçük ekranlarda 16, diğerlerinde 18
+import React, { useEffect } from "react";
+import {
+    Image,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
+} from "react-native";
 
 type SponsorSplashProps = {
   onDone: () => void;
-  durationMs?: number; // istersen sonra 2000 yerine 2500 ms yapabil
 };
 
-export default function SponsorSplash({
-  onDone,
-  durationMs = 2000,
-}: SponsorSplashProps) {
+export default function SponsorSplash({ onDone }: SponsorSplashProps) {
+  // İstersen otomatik kapanma kalsın
   useEffect(() => {
-    const id = setTimeout(onDone, durationMs);
-    return () => clearTimeout(id);
-  }, [onDone, durationMs]);
+    const timer = setTimeout(() => {
+      onDone();
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [onDone]);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.label}>Enerji Sponsorumuz</Text>
+    <View style={styles.backdrop}>
+      <View style={styles.card}>
+        <Text style={styles.tag}>Enerji sponsorumuz</Text>
 
-      <Image
-        source={require("../../assets/sponsors/global-solar.png")}
-        style={styles.logo}
-        resizeMode="contain"
-      />
+        <Image
+          source={require("../../assets/sponsors/global-solar.png")}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+
+        <Text style={styles.subtitle}>
+          WellShe’nin sana her gün eşlik eden enerjisinde Global Solar’ın da
+          payı var. ☀️
+        </Text>
+
+        <TouchableOpacity style={styles.button} onPress={onDone}>
+          <Text style={styles.buttonText}>Devam et</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  backdrop: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#00000040",
     justifyContent: "center",
     alignItems: "center",
   },
-  label: {
-    fontSize: FONT_SIZE,
-    color: "#444",
-    marginBottom: 12,
-    letterSpacing: 0.3,
+  card: {
+    width: "80%",
+    maxWidth: 360,
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    backgroundColor: "#FFF7F3",
+    borderWidth: 1,
+    borderColor: "#F3B6B3",
+    alignItems: "center",
+  },
+  tag: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#B0756F",
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
   logo: {
-    width: "45%",   // 🔥 her ekranda orantılı
-    aspectRatio: 3.2, // logo geniş/ince, yaklaşık oran
+    width: 180, // BURAYI büyütüp/küçültebilirsin
+    height: 110,
+    marginTop: 12,
+    marginBottom: 8,
+    alignSelf: "center",
+  },
+  subtitle: {
+    fontSize: 14,
+    color: "#5A3A35",
+    textAlign: "center",
+    marginTop: 6,
+    marginBottom: 14,
+  },
+  button: {
+    marginTop: 4,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: "#F3B6B3",
+  },
+  buttonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
   },
 });
