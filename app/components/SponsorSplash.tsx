@@ -51,10 +51,11 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   logo: {
-    width: 260,
-    height: 150,
+    width: 280,
+    height: 160,
     marginBottom: 14,
-    maxWidth: "80%",
+    maxWidth: "85%",
+    alignSelf: "center",
   },
   subtitle: {
     fontSize: 14,
