@@ -1,3 +1,4 @@
+// app/weekly/book.tsx
 import { Stack } from "expo-router"; // ✅ YENİ EKLENDİ
 import React, { useEffect, useState } from "react";
 import {
@@ -8,6 +9,7 @@ import {
   Text,
   View,
 } from "react-native";
+import AdBanner from "../../components/AdBanner";
 import { weeklyArchive, type WeeklyItem } from "../../data/weekly";
 import { fetchWeeklyArchive } from "../../lib/weeklyRemote";
 
@@ -23,6 +25,15 @@ function getDateTsFromId(id: string): number {
 
 function sortNewestFirst(list: WeeklyItem[]): WeeklyItem[] {
   return [...list].sort((a, b) => getDateTsFromId(b.id) - getDateTsFromId(a.id));
+}
+
+// 🔹 Weekly alt sayfalar için banner wrapper
+function WeeklyBannerAd() {
+  return (
+    <View style={styles.adContainer}>
+      <AdBanner />
+    </View>
+  );
 }
 
 export default function WeeklyBookScreen() {
@@ -59,28 +70,39 @@ export default function WeeklyBookScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* ✅ ÜST BAŞLIK – artık “Kitap” görünecek */}
-      <Stack.Screen options={{ title: "Kitap" }} />
+      <View style={styles.page}>
+        {/* ✅ ÜST BAŞLIK – artık “Kitap” görünecek */}
+        <Stack.Screen options={{ title: "Kitap" }} />
 
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.pageTitle}>Haftanın Kitap Önerileri</Text>
+        <ScrollView contentContainerStyle={styles.content}>
+          <Text style={styles.pageTitle}>Haftanın Kitap Önerileri</Text>
 
-        {items.map((item) => (
-          <View key={item.id} style={styles.card}>
-            <Text style={styles.weekLabel}>{item.weekLabel}</Text>
-            <Text style={styles.cardTitle}>{item.title}</Text>
-            <Text style={styles.cardDescription}>{item.description}</Text>
-          </View>
-        ))}
-      </ScrollView>
+          {items.map((item) => (
+            <View key={item.id} style={styles.card}>
+              <Text style={styles.weekLabel}>{item.weekLabel}</Text>
+              <Text style={styles.cardTitle}>{item.title}</Text>
+              <Text style={styles.cardDescription}>{item.description}</Text>
+            </View>
+          ))}
+        </ScrollView>
+
+        {/* 🔹 Alt bant reklam */}
+        <WeeklyBannerAd />
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#FFF7F3" },
+  page: { flex: 1 },
   content: { padding: 16, paddingBottom: 24 },
-  pageTitle: { fontSize: 20, fontWeight: "700", color: "#4A2E2A", marginBottom: 12 },
+  pageTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#4A2E2A",
+    marginBottom: 12,
+  },
   card: {
     padding: 14,
     borderRadius: 12,
@@ -89,8 +111,28 @@ const styles = StyleSheet.create({
     borderColor: "#F3B6B3",
     marginBottom: 12,
   },
-  weekLabel: { fontSize: 12, fontWeight: "600", color: "#B0756F", marginBottom: 4 },
-  cardTitle: { fontSize: 15, fontWeight: "600", color: "#4A2E2A", marginBottom: 6 },
+  weekLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#B0756F",
+    marginBottom: 4,
+  },
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#4A2E2A",
+    marginBottom: 6,
+  },
   cardDescription: { fontSize: 13, color: "#5A3A35" },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#FFF7F3" },
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#FFF7F3",
+  },
+  adContainer: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+    alignItems: "center",
+  },
 });

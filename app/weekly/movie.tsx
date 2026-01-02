@@ -10,6 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
+import AdBanner from "../../components/AdBanner";
 import { weeklyArchive, type WeeklyItem } from "../../data/weekly";
 import { fetchWeeklyArchive } from "../../lib/weeklyRemote";
 
@@ -30,6 +31,15 @@ function getDateTsFromId(id: string): number {
 
 function sortNewestFirst(list: WeeklyItem[]): WeeklyItem[] {
   return [...list].sort((a, b) => getDateTsFromId(b.id) - getDateTsFromId(a.id));
+}
+
+// 🔹 Weekly alt sayfalar için banner wrapper
+function WeeklyBannerAd() {
+  return (
+    <View style={styles.adContainer}>
+      <AdBanner />
+    </View>
+  );
 }
 
 export default function WeeklyMovieScreen() {
@@ -71,24 +81,31 @@ export default function WeeklyMovieScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen options={{ title: "Dizi / Film" }} />
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.pageTitle}>Haftanın Dizi / Film Önerileri</Text>
+      <View style={styles.page}>
+        <Stack.Screen options={{ title: "Dizi / Film" }} />
 
-        {items.map((item) => (
-          <View key={item.id} style={styles.card}>
-            <Text style={styles.weekLabel}>{item.weekLabel}</Text>
-            <Text style={styles.cardTitle}>{item.title}</Text>
-            <Text style={styles.cardDescription}>{item.description}</Text>
-          </View>
-        ))}
-      </ScrollView>
+        <ScrollView contentContainerStyle={styles.content}>
+          <Text style={styles.pageTitle}>Haftanın Dizi / Film Önerileri</Text>
+
+          {items.map((item) => (
+            <View key={item.id} style={styles.card}>
+              <Text style={styles.weekLabel}>{item.weekLabel}</Text>
+              <Text style={styles.cardTitle}>{item.title}</Text>
+              <Text style={styles.cardDescription}>{item.description}</Text>
+            </View>
+          ))}
+        </ScrollView>
+
+        {/* 🔹 Alt bant reklam */}
+        <WeeklyBannerAd />
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#FFF7F3" },
+  page: { flex: 1 },
   content: { padding: 16, paddingBottom: 24 },
   pageTitle: {
     fontSize: 20,
@@ -122,5 +139,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#FFF7F3",
+  },
+  adContainer: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+    alignItems: "center",
   },
 });

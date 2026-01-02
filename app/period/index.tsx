@@ -15,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
+import AdBanner from "../../components/AdBanner";
 
 type DateObject = { dateString: string };
 
@@ -401,6 +402,15 @@ function getCyclePhaseInfo(
   };
 }
 
+// 🔹 Regl ekranı için banner komponenti (article/calorie mimarisiyle aynı mantık)
+function PeriodBannerAd() {
+  return (
+    <View style={styles.adContainer}>
+      <AdBanner />
+    </View>
+  );
+}
+
 export default function PeriodScreen() {
   const [settings, setSettings] = useState<PeriodSettings | null>(null);
   const [logs, setLogs] = useState<PeriodLog[]>([]);
@@ -779,276 +789,297 @@ export default function PeriodScreen() {
     <>
       <Stack.Screen options={{ title: "Regl Takvimi" }} />
 
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.pageTitle}>Regl Takvimi</Text>
-        <Text style={styles.pageSubtitle}>
-          Regl başlangıçlarını, modunu ve semptomlarını takip ederek bedeninle
-          daha uyumlu bir ritim yakalayabilirsin.
-        </Text>
-
-        {/* ✅ Bildirim butonu: döngü özetinin hemen üstünde */}
-        <Pressable
-          style={styles.secondaryButton}
-          onPress={() =>
-            scheduleCycleNotifications(logs, settings, { silent: false })
-          }
-        >
-          <Text style={styles.secondaryButtonText}>
-            Döngün İçin Bildirimleri Aç
-          </Text>
-        </Pressable>
-
-        <Text style={styles.helperText}>
-          Bildirim iznin açıksa tahmini reglden 2 gün önce ve tahmini regl
-          gününde hatırlatıcı alırsın.
-        </Text>
-
-        {/* Döngü Özeti */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Döngü Özeti</Text>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Son regl başlangıcın:</Text>
-            <Text style={styles.summaryValue}>
-              {lastStartTR ? lastStartTR : "Henüz kayıt yok"}
-            </Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Ortalama döngü süren:</Text>
-            <Text style={styles.summaryValue}>
-              {settings?.averageCycleLength ?? "-"} gün
-            </Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Regl süren:</Text>
-            <Text style={styles.summaryValue}>
-              {settings?.periodLength ?? "-"} gün
-            </Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>
-              Tahmini bir sonraki regl başlangıcı:
-            </Text>
-            <Text style={styles.summaryValue}>
-              {nextPeriodTR ? nextPeriodTR : "Henüz hesaplanamıyor"}
-            </Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Tahmini ovülasyon günün:</Text>
-            <Text style={styles.summaryValue}>
-              {ovulationDateTR ?? "Henüz hesaplanamıyor"}
-            </Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Verimli günlerin:</Text>
-            <Text style={styles.summaryValue}>
-              {fertileRangeTR ? fertileRangeTR : "Henüz hesaplanamıyor"}
-            </Text>
-          </View>
-
-          <Text style={styles.summaryNote}>
-            Tahmini tarih ve verimli günler, son regl başlangıcın ve ortalama
-            döngü süren üzerinden hesaplanır. Döngünü güncelledikçe bu alanlar
-            da senin ritmine daha çok uyum sağlar.
-          </Text>
-        </View>
-
-        {/* ✅ Takvim: döngü özetinin altına alındı */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Takvim Görünümü</Text>
-          <Text style={styles.cardDescription}>
-            Aşağıdaki takvimde son regl başlangıcını takvimden de seçebilirsin.
-            Geçmiş regl günlerin, tahmini regl dönemlerin ve verimli günlerin
-            renklerle işaretlenir.
+      <View style={styles.page}>
+        <ScrollView contentContainerStyle={styles.content}>
+          <Text style={styles.pageTitle}>Regl Takvimi</Text>
+          <Text style={styles.pageSubtitle}>
+            Regl başlangıçlarını, modunu ve semptomlarını takip ederek bedeninle
+            daha uyumlu bir ritim yakalayabilirsin.
           </Text>
 
-          <Calendar
-            onDayPress={handleCalendarDayPress}
-            markedDates={markedDates}
-            maxDate={todayKey} // ✅ gelecek günler seçilemez
-            theme={{
-              todayTextColor: "#B0756F",
-              arrowColor: "#B0756F",
-            }}
-          />
-
-          <View style={styles.legendContainer}>
-            <View style={styles.legendRow}>
-              <View style={[styles.legendColor, { backgroundColor: "#FF6B81" }]} />
-              <Text style={styles.legendText}>
-                Kırmızı alanlar: Regl olduğun günler
-              </Text>
-            </View>
-            <View style={styles.legendRow}>
-              <View style={[styles.legendColor, { backgroundColor: "#C4A1FF" }]} />
-              <Text style={styles.legendText}>
-                Mor alanlar: Tahmini bir sonraki regl döneminin günleri
-              </Text>
-            </View>
-            <View style={styles.legendRow}>
-              <View style={[styles.legendColor, { backgroundColor: "#FFE3F0" }]} />
-              <Text style={styles.legendText}>
-                Açık pembe alanlar: Tahmini verimli günlerin
-              </Text>
-            </View>
-            <View style={styles.legendRow}>
-              <View
-                style={[
-                  styles.legendColor,
-                  { backgroundColor: "#FF9EC4", borderRadius: 999 },
-                ]}
-              />
-              <Text style={styles.legendText}>
-                Pembe nokta: Tahmini ovülasyon günün
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Bugün Regl Başladı butonu */}
-        <Pressable style={styles.primaryButton} onPress={handleTodayStarted}>
-          <Text style={styles.primaryButtonText}>Bugün Regl Başladı</Text>
-        </Pressable>
-        <Text style={styles.helperText}>
-          Reglinin ilk gününde bu butona dokunarak döngünü güncellersin.
-        </Text>
-
-        {/* Bugünkü faz */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Bugün Döngünün Fazı</Text>
-          <Text style={styles.phaseTitle}>{phaseInfo.title}</Text>
-          <Text style={styles.phaseText}>{phaseInfo.description}</Text>
-          <Text style={styles.phaseSuggestion}>{phaseInfo.suggestion}</Text>
-        </View>
-
-        {/* Mod & Semptom */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Bugünkü Modun & Semptomların</Text>
-          <Text style={styles.cardDescription}>
-            Bugün nasıl hissettiğini ve bedeninde neler olduğunu kısaca
-            işaretleyebilirsin. Böylece zaman içinde döngüyle birlikte modunun
-            nasıl değiştiğini daha net görebilirsin.
-          </Text>
-
-          <Text style={styles.inputLabel}>Bugün modun nasıl?</Text>
-          <View style={styles.moodRow}>
-            {MOOD_OPTIONS.map((opt) => {
-              const selected = todayMood === opt.key;
-              return (
-                <Pressable
-                  key={opt.key}
-                  style={[
-                    styles.moodChip,
-                    selected && styles.moodChipSelected,
-                    opt.key === "low" &&
-                      selected && { backgroundColor: "#FAD4D4" },
-                    opt.key === "neutral" &&
-                      selected && { backgroundColor: "#FFE8C2" },
-                    opt.key === "good" &&
-                      selected && { backgroundColor: "#D4F5D6" },
-                    opt.key === "great" &&
-                      selected && { backgroundColor: "#E9D8FF" },
-                  ]}
-                  onPress={() => handleSelectMood(opt.key)}
-                >
-                  <Text
-                    style={[
-                      styles.moodChipText,
-                      selected && styles.moodChipTextSelected,
-                    ]}
-                  >
-                    {opt.emoji} {opt.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Text style={[styles.inputLabel, { marginTop: 10 }]}>
-            Bugün bedeninde neler var?
-          </Text>
-          <View style={styles.symptomContainer}>
-            {SYMPTOMS.map((symptom) => {
-              const selected = todaySymptoms.includes(symptom);
-              return (
-                <Pressable
-                  key={symptom}
-                  style={[
-                    styles.symptomChip,
-                    selected && styles.symptomChipSelected,
-                  ]}
-                  onPress={() => handleToggleSymptom(symptom)}
-                >
-                  <Text
-                    style={[
-                      styles.symptomChipText,
-                      selected && styles.symptomChipTextSelected,
-                    ]}
-                  >
-                    {symptom}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Text style={styles.helperText}>
-            Modunu ve semptomlarını her gün birkaç saniyede işaretleyebilirsin.
-            Bu kayıtlar sadece senin cihazında saklanır.
-          </Text>
-        </View>
-
-        {/* Ayarlar */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Döngü Ayarların</Text>
-
-          <Text style={styles.inputLabel}>Son regl başlangıcın</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Örn: 24.11.2025"
-            value={inputLastStartDate}
-            onChangeText={setInputLastStartDate}
-          />
-
-          <Text style={styles.inputLabel}>Ortalama döngü süren (gün)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Örn: 28"
-            keyboardType="number-pad"
-            value={inputAverageCycle}
-            onChangeText={setInputAverageCycle}
-          />
-
-          <Text style={styles.inputLabel}>Reglin ortalama kaç gün sürüyor?</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Örn: 5"
-            keyboardType="number-pad"
-            value={inputPeriodLength}
-            onChangeText={setInputPeriodLength}
-          />
-
-          <Pressable style={styles.secondaryButton} onPress={handleSaveSettings}>
-            <Text style={styles.secondaryButtonText}>Ayarları Kaydet</Text>
+          {/* ✅ Bildirim butonu: döngü özetinin hemen üstünde */}
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={() =>
+              scheduleCycleNotifications(logs, settings, { silent: false })
+            }
+          >
+            <Text style={styles.secondaryButtonText}>
+              Döngün İçin Bildirimleri Aç
+            </Text>
           </Pressable>
 
           <Text style={styles.helperText}>
-            Son regl başlangıcını veya döngü süreni değiştirdiğinde uygulama
-            bildirimleri otomatik olarak günceller. İstersen yukarıdaki butondan
-            elle de yeniden ayarlayabilirsin.
+            Bildirim iznin açıksa tahmini reglden 2 gün önce ve tahmini regl
+            gününde hatırlatıcı alırsın.
           </Text>
-        </View>
-      </ScrollView>
+
+          {/* Döngü Özeti */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Döngü Özeti</Text>
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Son regl başlangıcın:</Text>
+              <Text style={styles.summaryValue}>
+                {lastStartTR ? lastStartTR : "Henüz kayıt yok"}
+              </Text>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Ortalama döngü süren:</Text>
+              <Text style={styles.summaryValue}>
+                {settings?.averageCycleLength ?? "-"} gün
+              </Text>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Regl süren:</Text>
+              <Text style={styles.summaryValue}>
+                {settings?.periodLength ?? "-"} gün
+              </Text>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>
+                Tahmini bir sonraki regl başlangıcı:
+              </Text>
+              <Text style={styles.summaryValue}>
+                {nextPeriodTR ? nextPeriodTR : "Henüz hesaplanamıyor"}
+              </Text>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Tahmini ovülasyon günün:</Text>
+              <Text style={styles.summaryValue}>
+                {ovulationDateTR ?? "Henüz hesaplanamıyor"}
+              </Text>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Verimli günlerin:</Text>
+              <Text style={styles.summaryValue}>
+                {fertileRangeTR ? fertileRangeTR : "Henüz hesaplanamıyor"}
+              </Text>
+            </View>
+
+            <Text style={styles.summaryNote}>
+              Tahmini tarih ve verimli günler, son regl başlangıcın ve ortalama
+              döngü süren üzerinden hesaplanır. Döngünü güncelledikçe bu alanlar
+              da senin ritmine daha çok uyum sağlar.
+            </Text>
+          </View>
+
+          {/* ✅ Takvim: döngü özetinin altına alındı */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Takvim Görünümü</Text>
+            <Text style={styles.cardDescription}>
+              Aşağıdaki takvimde son regl başlangıcını takvimden de seçebilirsin.
+              Geçmiş regl günlerin, tahmini regl dönemlerin ve verimli günlerin
+              renklerle işaretlenir.
+            </Text>
+
+            <Calendar
+              onDayPress={handleCalendarDayPress}
+              markedDates={markedDates}
+              maxDate={todayKey} // ✅ gelecek günler seçilemez
+              theme={{
+                todayTextColor: "#B0756F",
+                arrowColor: "#B0756F",
+              }}
+            />
+
+            <View style={styles.legendContainer}>
+              <View style={styles.legendRow}>
+                <View
+                  style={[styles.legendColor, { backgroundColor: "#FF6B81" }]}
+                />
+                <Text style={styles.legendText}>
+                  Kırmızı alanlar: Regl olduğun günler
+                </Text>
+              </View>
+              <View style={styles.legendRow}>
+                <View
+                  style={[styles.legendColor, { backgroundColor: "#C4A1FF" }]}
+                />
+                <Text style={styles.legendText}>
+                  Mor alanlar: Tahmini bir sonraki regl döneminin günleri
+                </Text>
+              </View>
+              <View style={styles.legendRow}>
+                <View
+                  style={[styles.legendColor, { backgroundColor: "#FFE3F0" }]}
+                />
+                <Text style={styles.legendText}>
+                  Açık pembe alanlar: Tahmini verimli günlerin
+                </Text>
+              </View>
+              <View style={styles.legendRow}>
+                <View
+                  style={[
+                    styles.legendColor,
+                    { backgroundColor: "#FF9EC4", borderRadius: 999 },
+                  ]}
+                />
+                <Text style={styles.legendText}>
+                  Pembe nokta: Tahmini ovülasyon günün
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Bugün Regl Başladı butonu */}
+          <Pressable style={styles.primaryButton} onPress={handleTodayStarted}>
+            <Text style={styles.primaryButtonText}>Bugün Regl Başladı</Text>
+          </Pressable>
+          <Text style={styles.helperText}>
+            Reglinin ilk gününde bu butona dokunarak döngünü güncellersin.
+          </Text>
+
+          {/* Bugünkü faz */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Bugün Döngünün Fazı</Text>
+            <Text style={styles.phaseTitle}>{phaseInfo.title}</Text>
+            <Text style={styles.phaseText}>{phaseInfo.description}</Text>
+            <Text style={styles.phaseSuggestion}>{phaseInfo.suggestion}</Text>
+          </View>
+
+          {/* Mod & Semptom */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Bugünkü Modun & Semptomların</Text>
+            <Text style={styles.cardDescription}>
+              Bugün nasıl hissettiğini ve bedeninde neler olduğunu kısaca
+              işaretleyebilirsin. Böylece zaman içinde döngüyle birlikte
+              modunun nasıl değiştiğini daha net görebilirsin.
+            </Text>
+
+            <Text style={styles.inputLabel}>Bugün modun nasıl?</Text>
+            <View style={styles.moodRow}>
+              {MOOD_OPTIONS.map((opt) => {
+                const selected = todayMood === opt.key;
+                return (
+                  <Pressable
+                    key={opt.key}
+                    style={[
+                      styles.moodChip,
+                      selected && styles.moodChipSelected,
+                      opt.key === "low" &&
+                        selected && { backgroundColor: "#FAD4D4" },
+                      opt.key === "neutral" &&
+                        selected && { backgroundColor: "#FFE8C2" },
+                      opt.key === "good" &&
+                        selected && { backgroundColor: "#D4F5D6" },
+                      opt.key === "great" &&
+                        selected && { backgroundColor: "#E9D8FF" },
+                    ]}
+                    onPress={() => handleSelectMood(opt.key)}
+                  >
+                    <Text
+                      style={[
+                        styles.moodChipText,
+                        selected && styles.moodChipTextSelected,
+                      ]}
+                    >
+                      {opt.emoji} {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text style={[styles.inputLabel, { marginTop: 10 }]}>
+              Bugün bedeninde neler var?
+            </Text>
+            <View style={styles.symptomContainer}>
+              {SYMPTOMS.map((symptom) => {
+                const selected = todaySymptoms.includes(symptom);
+                return (
+                  <Pressable
+                    key={symptom}
+                    style={[
+                      styles.symptomChip,
+                      selected && styles.symptomChipSelected,
+                    ]}
+                    onPress={() => handleToggleSymptom(symptom)}
+                  >
+                    <Text
+                      style={[
+                        styles.symptomChipText,
+                        selected && styles.symptomChipTextSelected,
+                      ]}
+                    >
+                      {symptom}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text style={styles.helperText}>
+              Modunu ve semptomlarını her gün birkaç saniyede işaretleyebilirsin.
+              Bu kayıtlar sadece senin cihazında saklanır.
+            </Text>
+          </View>
+
+          {/* Ayarlar */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Döngü Ayarların</Text>
+
+            <Text style={styles.inputLabel}>Son regl başlangıcın</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Örn: 24.11.2025"
+              value={inputLastStartDate}
+              onChangeText={setInputLastStartDate}
+            />
+
+            <Text style={styles.inputLabel}>Ortalama döngü süren (gün)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Örn: 28"
+              keyboardType="number-pad"
+              value={inputAverageCycle}
+              onChangeText={setInputAverageCycle}
+            />
+
+            <Text style={styles.inputLabel}>
+              Reglin ortalama kaç gün sürüyor?
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Örn: 5"
+              keyboardType="number-pad"
+              value={inputPeriodLength}
+              onChangeText={setInputPeriodLength}
+            />
+
+            <Pressable
+              style={styles.secondaryButton}
+              onPress={handleSaveSettings}
+            >
+              <Text style={styles.secondaryButtonText}>Ayarları Kaydet</Text>
+            </Pressable>
+
+            <Text style={styles.helperText}>
+              Son regl başlangıcını veya döngü süreni değiştirdiğinde uygulama
+              bildirimleri otomatik olarak günceller. İstersen yukarıdaki
+              butondan elle de yeniden ayarlayabilirsin.
+            </Text>
+          </View>
+        </ScrollView>
+
+        {/* 🔹 Alt bant reklam (native + web-safe AdBanner) */}
+        <PeriodBannerAd />
+      </View>
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  page: {
+    flex: 1,
+    backgroundColor: "#FFF7F3",
+  },
+
   content: { padding: 16, paddingBottom: 32 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingText: { color: "#4A2E2A", fontSize: 16 },
@@ -1169,4 +1200,10 @@ const styles = StyleSheet.create({
   },
   phaseText: { fontSize: 13, color: "#5A3A35", marginBottom: 6 },
   phaseSuggestion: { fontSize: 12, color: "#887473" },
+
+  adContainer: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+    alignItems: "center",
+  },
 });

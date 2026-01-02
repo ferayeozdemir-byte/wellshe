@@ -18,6 +18,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import AdBanner from "../components/AdBanner";
 
 const EMAIL_KEY = "userEmail";
 const NAME_KEY = "userName";
@@ -93,6 +94,15 @@ async function openSocial(appUrl: string, webUrl: string, label: string) {
       `${label} bağlantısını şu an açamıyoruz.`
     );
   }
+}
+
+// 🔹 Profil ekranı için banner wrapper (diğer sayfalarla aynı mimari)
+function ProfileBannerAd() {
+  return (
+    <View style={styles.adContainer}>
+      <AdBanner />
+    </View>
+  );
 }
 
 export default function ProfileScreen() {
@@ -184,185 +194,192 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Profilim</Text>
-        <Text style={styles.subtitle}>
-          Buradan ismini güncelleyebilir, istersen e-posta adresini
-          ekleyebilirsin.
-        </Text>
+      <View style={styles.page}>
+        <ScrollView contentContainerStyle={styles.container}>
+          <Text style={styles.title}>Profilim</Text>
+          <Text style={styles.subtitle}>
+            Buradan ismini güncelleyebilir, istersen e-posta adresini
+            ekleyebilirsin.
+          </Text>
 
-        {/* ✅ PROFİL KARTI */}
-        <View style={styles.profileCard}>
-          <Text style={styles.profileCardTitle}>Bilgilerim</Text>
+          {/* ✅ PROFİL KARTI */}
+          <View style={styles.profileCard}>
+            <Text style={styles.profileCardTitle}>Bilgilerim</Text>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Adın</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Adını yaz"
-              placeholderTextColor="#b88c86"
-              value={name}
-              onChangeText={setName}
-            />
+            <View style={styles.field}>
+              <Text style={styles.label}>Adın</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Adını yaz"
+                placeholderTextColor="#b88c86"
+                value={name}
+                onChangeText={setName}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>E-posta (isteğe bağlı)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="ornek@mail.com"
+                placeholderTextColor="#b88c86"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={email}
+                onChangeText={setEmail}
+              />
+            </View>
+
+            <TouchableOpacity
+              style={[styles.button, isSaving && { opacity: 0.7 }]}
+              onPress={handleSave}
+              disabled={isSaving}
+            >
+              <Text style={styles.buttonText}>
+                {isSaving ? "Kaydediliyor..." : "Kaydet"}
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>E-posta (isteğe bağlı)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="ornek@mail.com"
-              placeholderTextColor="#b88c86"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={email}
-              onChangeText={setEmail}
-            />
+          {/* 🔹 FAVORİLER */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>İçeriklerim</Text>
+
+            <TouchableOpacity
+              style={styles.card}
+              onPress={() => router.push("/favorites")}
+            >
+              <Text style={styles.cardTitle}>Favorilerim</Text>
+              <Text style={styles.cardText}>
+                Beğendiğin içerikleri burada toplu olarak görebilirsin.
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* 🔹 SOSYAL */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>WellShe ile bağlantıda kal ✨</Text>
+            <Text style={styles.sectionDescription}>
+              Güncellemeler, mini ipuçları ve yeni içerikler için sosyal medyada
+              da buluşalım.
+            </Text>
+
+            <View style={styles.socialRow}>
+              <TouchableOpacity
+                style={styles.socialButton}
+                onPress={handleInstagram}
+              >
+                <Ionicons name="logo-instagram" size={20} color="#B0756F" />
+                <Text style={styles.socialText}>Instagram</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.socialButton}
+                onPress={handleTikTok}
+              >
+                <Ionicons name="logo-tiktok" size={20} color="#B0756F" />
+                <Text style={styles.socialText}>TikTok</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.socialButton}
+                onPress={handleLinkedIn}
+              >
+                <Ionicons name="logo-linkedin" size={20} color="#B0756F" />
+                <Text style={styles.socialText}>LinkedIn</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* 🔹 PUANLA */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>
+              WellShe’ye küçük bir yıldız bırak 🌟
+            </Text>
+            <Text style={styles.sectionDescription}>
+              Uygulamayı beğendiysen, mağazada vereceğin puan çok şey değiştirir.
+            </Text>
+
+            <View style={styles.rateRow}>
+              <TouchableOpacity
+                style={[styles.rateButton, { backgroundColor: "#F3B6B3" }]}
+                onPress={handleRateOnPlayStore}
+              >
+                <Text style={styles.rateButtonText}>Google Play</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.rateButton, { backgroundColor: "#B0756F" }]}
+                onPress={handleRateOnAppStore}
+              >
+                <Text style={styles.rateButtonText}>App Store</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* 🔹 BİZE YAZ */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Bana yaz 💌</Text>
+            <Text style={styles.sectionDescription}>
+              WellShe ile ilgili yorumun, sorun, teklifin veya önerin mi var? Bana
+              yaz!
+            </Text>
+
+            <TouchableOpacity style={styles.mailButton} onPress={handleSendMail}>
+              <Text style={styles.mailButtonText}>E-posta gönder</Text>
+            </TouchableOpacity>
           </View>
 
           <TouchableOpacity
-            style={[styles.button, isSaving && { opacity: 0.7 }]}
-            onPress={handleSave}
-            disabled={isSaving}
+            style={styles.secondaryButton}
+            onPress={() => router.back()}
           >
-            <Text style={styles.buttonText}>
-              {isSaving ? "Kaydediliyor..." : "Kaydet"}
-            </Text>
+            <Text style={styles.secondaryButtonText}>Geri dön</Text>
           </TouchableOpacity>
-        </View>
 
-        {/* 🔹 FAVORİLER */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>İçeriklerim</Text>
+          {/* 🔹 GİZLİLİK */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Gizlilik</Text>
 
-          <TouchableOpacity
-            style={styles.card}
-            onPress={() => router.push("/favorites")}
-          >
-            <Text style={styles.cardTitle}>Favorilerim</Text>
-            <Text style={styles.cardText}>
-              Beğendiğin içerikleri burada toplu olarak görebilirsin.
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* 🔹 SOSYAL */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>WellShe ile bağlantıda kal ✨</Text>
-          <Text style={styles.sectionDescription}>
-            Güncellemeler, mini ipuçları ve yeni içerikler için sosyal medyada
-            da buluşalım.
-          </Text>
-
-          <View style={styles.socialRow}>
-            <TouchableOpacity
-              style={styles.socialButton}
-              onPress={handleInstagram}
+            <Pressable
+              style={styles.card}
+              onPress={() => router.push("/privacy")}
             >
-              <Ionicons name="logo-instagram" size={20} color="#B0756F" />
-              <Text style={styles.socialText}>Instagram</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.socialButton}
-              onPress={handleTikTok}
-            >
-              <Ionicons name="logo-tiktok" size={20} color="#B0756F" />
-              <Text style={styles.socialText}>TikTok</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.socialButton}
-              onPress={handleLinkedIn}
-            >
-              <Ionicons name="logo-linkedin" size={20} color="#B0756F" />
-              <Text style={styles.socialText}>LinkedIn</Text>
-            </TouchableOpacity>
+              <Text style={styles.cardTitle}>Gizlilik & KVKK</Text>
+              <Text style={styles.cardText}>
+                Verilerin sadece senin cihazında saklanır. Detaylar için dokun.
+              </Text>
+            </Pressable>
           </View>
-        </View>
 
-        {/* 🔹 PUANLA */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            WellShe’ye küçük bir yıldız bırak 🌟
-          </Text>
-          <Text style={styles.sectionDescription}>
-            Uygulamayı beğendiysen, mağazada vereceğin puan çok şey değiştirir.
-          </Text>
+          {/* Küçük not: store build için plugin şart */}
+          {Platform.OS === "android" && (
+            <View style={{ marginTop: 10 }}>
+              <Text
+                style={{
+                  fontSize: 11,
+                  color: "#8a6f6a",
+                  textAlign: "center",
+                }}
+              >
+                Not: Play Store build’de özel uygulama linkleri için Android
+                queries plugin’i gerekir.
+              </Text>
+            </View>
+          )}
+        </ScrollView>
 
-          <View style={styles.rateRow}>
-            <TouchableOpacity
-              style={[styles.rateButton, { backgroundColor: "#F3B6B3" }]}
-              onPress={handleRateOnPlayStore}
-            >
-              <Text style={styles.rateButtonText}>Google Play</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.rateButton, { backgroundColor: "#B0756F" }]}
-              onPress={handleRateOnAppStore}
-            >
-              <Text style={styles.rateButtonText}>App Store</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* 🔹 BİZE YAZ */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Bana yaz 💌</Text>
-          <Text style={styles.sectionDescription}>
-            WellShe ile ilgili yorumun, sorun, teklifin veya önerin mi var? Bana
-            yaz!
-          </Text>
-
-          <TouchableOpacity style={styles.mailButton} onPress={handleSendMail}>
-            <Text style={styles.mailButtonText}>E-posta gönder</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.secondaryButtonText}>Geri dön</Text>
-        </TouchableOpacity>
-
-        {/* 🔹 GİZLİLİK */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Gizlilik</Text>
-
-          <Pressable
-            style={styles.card}
-            onPress={() => router.push("/privacy")}
-          >
-            <Text style={styles.cardTitle}>Gizlilik & KVKK</Text>
-            <Text style={styles.cardText}>
-              Verilerin sadece senin cihazında saklanır. Detaylar için dokun.
-            </Text>
-          </Pressable>
-        </View>
-
-        {/* Küçük not: store build için plugin şart */}
-        {Platform.OS === "android" && (
-          <View style={{ marginTop: 10 }}>
-            <Text
-              style={{
-                fontSize: 11,
-                color: "#8a6f6a",
-                textAlign: "center",
-              }}
-            >
-              Not: Play Store build’de özel uygulama linkleri için Android
-              queries plugin’i gerekir.
-            </Text>
-          </View>
-        )}
-      </ScrollView>
+        {/* 🔹 Alt bant reklam */}
+        <ProfileBannerAd />
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#FFF7F3" },
+  page: { flex: 1 },
+
   container: { padding: 16, paddingBottom: 32 },
 
   title: {
@@ -484,5 +501,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#B0756F",
     textDecorationLine: "underline",
+  },
+
+  adContainer: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+    alignItems: "center",
   },
 });
