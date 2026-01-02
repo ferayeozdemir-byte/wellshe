@@ -514,41 +514,50 @@ export default function ArticleScreen() {
   }, [routeId, articleIdParam, initialTitle, initialSummary, initialCoverUrl]);
 
   const hasHtml =
-    !!tr?.content_html && tr.content_html.trim().length > 0;
+  !!tr?.content_html && tr.content_html.trim().length > 0;
 
-  const htmlSource = useMemo(() => {
-    const rawHtml = tr?.content_html ?? "";
-    const html = rawHtml.trim();
-    if (!html.length) {
-      return { html: "<p></p>" };
-    }
-    return { html };
-  }, [tr?.content_html]);
+const htmlSource = useMemo(() => {
+  const rawHtml = tr?.content_html ?? "";
+  const html = rawHtml.trim();
+  if (!html.length) {
+    return { html: "<p></p>" };
+  }
+  return { html };
+}, [tr?.content_html]);
 
-  const displayTitle =
-    (typeof initialTitle === "string" && initialTitle.trim().length > 0
-      ? initialTitle
-      : tr?.title) ?? "Makale";
+const displayTitle =
+  (typeof initialTitle === "string" && initialTitle.trim().length > 0
+    ? initialTitle
+    : tr?.title) ?? "Makale";
 
-  const isInitialLoading =
-    loading && !localHit && !article && !tr;
+// ⭐ Liste ekranından geldiysen, elimizde title/summary/cover varsa
+// ekranı bloklayan ilk loader'ı göstermeyelim.
+const hasInitialPayload =
+  (typeof initialTitle === "string" && initialTitle.trim().length > 0) ||
+  (typeof initialSummary === "string" && initialSummary.trim().length > 0) ||
+  (typeof initialCoverUrl === "string" && initialCoverUrl.trim().length > 0);
+
+const isInitialLoading =
+  loading && !localHit && !article && !tr && !hasInitialPayload;
 
   if (isInitialLoading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-        <Text style={{ marginTop: 10, opacity: 0.7 }}>Yükleniyor…</Text>
-      </View>
-    );
-  }
+  return (
+    <View style={styles.center}>
+      <ActivityIndicator />
+      <Text style={{ marginTop: 10, opacity: 0.7 }}>Yükleniyor…</Text>
+    </View>
+  );
+}
 
-  if (err || (!article && !localHit)) {
-    return (
-      <View style={styles.center}>
-        <Text>{err ?? "İçerik bulunamadı."}</Text>
-      </View>
-    );
-  }
+// Eğer ne remote kayıt var ne local, ne de liste ekranından gelen initial veri varsa:
+// (mesela direkt derin link ile /article/something açmışsan)
+if (err || (!article && !localHit && !hasInitialPayload)) {
+  return (
+    <View style={styles.center}>
+      <Text>{err ?? "İçerik bulunamadı."}</Text>
+    </View>
+  );
+}
 
   // ✅ LOCAL RENDER
   if (localHit) {
