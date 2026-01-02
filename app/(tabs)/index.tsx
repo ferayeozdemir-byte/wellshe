@@ -1061,38 +1061,52 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Logo */}
-        <Image
-          source={require("../../assets/images/logo/wellshe_logo.png")}
-          style={styles.headerLogo}
-        />
+              {/* Logo */}
+      <Image
+        source={require("../../assets/images/logo/wellshe_logo.png")}
+        style={styles.headerLogo}
+        resizeMode="contain"
+      />
 
-        {/* ✅ OTA DEBUG KARTI (PROD’DA GİZLİ) */}
-        {showOtaDebug ? (
-          <View style={styles.otaCard}>
-            <Text style={styles.otaTitle}>OTA DEBUG</Text>
-            <Text style={styles.otaMono}>{otaDebug}</Text>
+      {/* ✅ OTA DEBUG KARTI (PROD’DA GİZLİ) */}
+      {showOtaDebug ? (
+        <View style={styles.otaCard}>
+          <Text style={styles.otaTitle}>OTA DEBUG</Text>
+          <Text style={styles.otaMono}>{otaDebug}</Text>
 
-            <Pressable style={styles.otaBtn} onPress={checkAndApplyOta}>
-              <Text style={styles.otaBtnText}>CHECK & APPLY OTA</Text>
-            </Pressable>
+          <Pressable style={styles.otaBtn} onPress={checkAndApplyOta}>
+            <Text style={styles.otaBtnText}>CHECK & APPLY OTA</Text>
+          </Pressable>
 
-            <Pressable style={styles.otaBtnSecondary} onPress={reloadOnly}>
-              <Text style={styles.otaBtnText}>RELOAD ONLY</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {/* Selamlama */}
-        <View style={styles.greetingRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.greeting}>Merhaba {name} 🌸</Text>
-          </View>
-
-          <TouchableOpacity onPress={() => router.push("/profile")}>
-            <Text style={styles.profileLink}>Profil</Text>
-          </TouchableOpacity>
+          <Pressable style={styles.otaBtnSecondary} onPress={reloadOnly}>
+            <Text style={styles.otaBtnText}>RELOAD ONLY</Text>
+          </Pressable>
         </View>
+      ) : null}
+
+            {/* Sponsor satırı: ortalı logo + metin */}
+      <View style={styles.sponsorRow}>
+        <View style={styles.sponsorLogoCircle}>
+          <Image
+            source={require("../../assets/sponsors/global-solar.png")}
+            style={styles.sponsorLogoInner}
+            resizeMode="contain"
+          />
+        </View>
+
+        <Text style={styles.sponsorRowText}>Enerji sponsorumuz</Text>
+      </View>
+
+      {/* Selamlama + Profil */}
+      <View style={styles.greetingRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.greeting}>Merhaba {name} 🌸</Text>
+        </View>
+
+        <TouchableOpacity onPress={() => router.push("/profile")}>
+          <Text style={styles.profileLink}>Profil</Text>
+        </TouchableOpacity>
+      </View>
 
         {/* Günün motivasyon cümlesi */}
         <View style={styles.motivationCard}>
@@ -1190,11 +1204,7 @@ export default function HomeScreen() {
             </Text>
 
             <TouchableOpacity
-              style={[
-                styles.reminderButton,
-                { marginTop: 8 },
-                styles.moveReminderButton,
-              ]}
+              style={[styles.reminderButton, { marginTop: 8 }, styles.moveReminderButton]}
               onPress={handleDailyMoveReminder}
             >
               <Text style={styles.reminderButtonText}>Bana Hatırlat</Text>
@@ -1482,13 +1492,13 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textDecorationLine: "underline",
   },
-  headerLogo: {
-    width: 90,
-    height: 90,
+    headerLogo: {
+    width: 110,
+    height: 110,
     alignSelf: "center",
-    marginTop: 12,
-    marginBottom: 4,
-    opacity: 0.9,
+    marginTop: 16,
+    marginBottom: 8,
+    opacity: 0.95,
   },
   motivationCard: {
     padding: 16,
@@ -1749,5 +1759,56 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     marginBottom: 6,
+  },
+      // 🔆 Sponsor satırı (logo + metin)
+  sponsorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center", // ortalama
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  sponsorLogoCircle: {
+    width: 76,          // daha büyük & yuvarlak
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#F3B6B3",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+  sponsorLogoInner: {
+    width: "80%",
+    height: "80%",
+  },
+  sponsorRowText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#B0756F",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+
+  // 🔆 Sponsor + Profil
+  sponsorProfileColumn: {
+    alignItems: "flex-end",
+  },
+  sponsorBadge: {
+    alignItems: "flex-end",
+    marginBottom: 4,
+  },
+  sponsorTag: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#B0756F",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  sponsorLogoSmall: {
+    width: 72,
+    height: 40,
   },
 });
