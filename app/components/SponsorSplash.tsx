@@ -51,9 +51,10 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   logo: {
-    width: 220,
-    height: 130,
+    width: 260,
+    height: 150,
     marginBottom: 14,
+    maxWidth: "80%",
   },
   subtitle: {
     fontSize: 14,
