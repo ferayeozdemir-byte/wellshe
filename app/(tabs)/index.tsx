@@ -1062,11 +1062,13 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
               {/* Logo */}
-      <Image
-        source={require("../../assets/images/logo/wellshe_logo.png")}
-        style={styles.headerLogo}
-        resizeMode="contain"
-      />
+      <View style={styles.appLogoCircle}>
+        <Image
+          source={require("../../assets/images/logo/wellshe_logo.png")}
+          style={styles.appLogoInner}
+          resizeMode="cover" // 🔴 ARTIK COVER
+        />
+      </View>
 
       {/* ✅ OTA DEBUG KARTI (PROD’DA GİZLİ) */}
       {showOtaDebug ? (
@@ -1090,7 +1092,7 @@ export default function HomeScreen() {
           <Image
             source={require("../../assets/sponsors/global-solar.png")}
             style={styles.sponsorLogoInner}
-            resizeMode="contain"
+            resizeMode="cover" // 🔴 burada da cover
           />
         </View>
 
@@ -1500,6 +1502,27 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     opacity: 0.95,
   },
+      appLogoCircle: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#F3B6B3",
+
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
+
+    marginTop: 16,
+    marginBottom: 10,
+
+    overflow: "hidden", // 🔴 İçeriği yuvarlağa göre kırp
+  },
+  appLogoInner: {
+    width: "110%",      // 🔴 Daireyi tamamen doldursun
+    height: "110%",
+  },
   motivationCard: {
     padding: 16,
     borderRadius: 16,
@@ -1761,15 +1784,15 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
       // 🔆 Sponsor satırı (logo + metin)
-  sponsorRow: {
+    sponsorRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center", // ortalama
+    justifyContent: "center",
     marginTop: 4,
     marginBottom: 10,
   },
   sponsorLogoCircle: {
-    width: 76,          // daha büyük & yuvarlak
+    width: 76,
     height: 76,
     borderRadius: 38,
     backgroundColor: "#FFFFFF",
@@ -1778,10 +1801,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
+    overflow: "hidden", // 🔴 burada da kırpsın
   },
   sponsorLogoInner: {
-    width: "80%",
-    height: "80%",
+    width: "120%",      // 🔴 tam daireyi doldur
+    height: "120%",
   },
   sponsorRowText: {
     fontSize: 14,

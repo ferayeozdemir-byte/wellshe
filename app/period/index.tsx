@@ -19,7 +19,7 @@ import { Calendar } from "react-native-calendars";
 type DateObject = { dateString: string };
 
 type PeriodLog = {
-  startDate: string; // "2025-11-24" gibi ISO format (YYYY-MM-DD)
+  startDate: string; // İçeride ISO format (YYYY-MM-DD) tutuluyor
 };
 
 type PeriodSettings = {
@@ -66,7 +66,7 @@ const PERIOD_LOGS_KEY = "wellshe_period_logs";
 const CYCLE_NOTIFICATION_IDS_KEY = "wellshe_cycle_notification_ids";
 const MOOD_DATA_KEY = "wellshe_mood_data";
 
-// Yardımcı: Date -> "YYYY-MM-DD"
+// Yardımcı: Date -> "YYYY-MM-DD" (iç format)
 function formatDate(date: Date): string {
   const y = date.getFullYear();
   const m = `${date.getMonth() + 1}`.padStart(2, "0");
@@ -74,11 +74,37 @@ function formatDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-// ISO -> "GG.AA.YYYY"
+// ISO -> "GG.AA.YYYY" (kullanıcıya gösterilen format)
 function formatDateTRFromISO(iso: string): string {
   const [y, m, d] = iso.split("-");
   if (!y || !m || !d) return iso;
   return `${d}.${m}.${y}`;
+}
+
+// "GG.AA.YYYY" -> ISO ("YYYY-MM-DD")
+// Kullanıcı input’unu iç formata çeviriyoruz
+function parseTRDateToISO(tr: string): string | null {
+  const match = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(tr.trim());
+  if (!match) return null;
+
+  const [, dStr, mStr, yStr] = match;
+  const d = parseInt(dStr, 10);
+  const m = parseInt(mStr, 10);
+  const y = parseInt(yStr, 10);
+
+  const date = new Date(y, m - 1, d);
+  if (Number.isNaN(date.getTime())) return null;
+
+  // Geçersiz tarihleri ele (32.01.2025 gibi)
+  if (
+    date.getFullYear() !== y ||
+    date.getMonth() !== m - 1 ||
+    date.getDate() !== d
+  ) {
+    return null;
+  }
+
+  return formatDate(date);
 }
 
 // ISO aralık -> "19.12 - 23.12 2025" (yıl 1 kez)
@@ -94,7 +120,7 @@ function formatRangeTR(startIso: string, endIso: string): string {
   return `${startShort}.${sy} - ${endShort}.${ey}`;
 }
 
-// Tarih formatı kontrolü (YYYY-MM-DD)
+// Tarih formatı kontrolü (ISO: YYYY-MM-DD)
 function isValidISODate(str: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
   const date = new Date(str);
@@ -102,7 +128,7 @@ function isValidISODate(str: string): boolean {
   return formatDate(date) === str;
 }
 
-// ✅ Gelecek tarih kontrolü (son regl başlangıcı ileri tarih olamaz)
+// ✅ Gelecek tarih kontrolü (ISO)
 function isFutureISODate(iso: string): boolean {
   if (!isValidISODate(iso)) return false;
 
@@ -115,7 +141,7 @@ function isFutureISODate(iso: string): boolean {
   return picked.getTime() > today.getTime();
 }
 
-// Tahmini sonraki regl başlangıç tarihi
+// Tahmini sonraki regl başlangıç tarihi (ISO)
 function getNextPeriodStart(
   logs: PeriodLog[],
   settings: PeriodSettings | null
@@ -127,7 +153,7 @@ function getNextPeriodStart(
   return formatDate(lastDate);
 }
 
-// Ovülasyon + verimli gün aralığı
+// Ovülasyon + verimli gün aralığı (hepsi ISO iç formatta)
 function getOvulationInfo(
   logs: PeriodLog[],
   settings: PeriodSettings | null
@@ -155,7 +181,7 @@ function getOvulationInfo(
   };
 }
 
-// Takvimde gösterilecek işaretli günler
+// Takvimde gösterilecek işaretli günler (ISO key'ler)
 function getMarkedDates(
   logs: PeriodLog[],
   settings: PeriodSettings | null
@@ -417,7 +443,10 @@ export default function PeriodScreen() {
           const parsedLogs: PeriodLog[] = JSON.parse(logsJson);
           setLogs(parsedLogs);
           if (parsedLogs.length > 0) {
-            setInputLastStartDate(parsedLogs[parsedLogs.length - 1].startDate);
+            // Input’a TR formatı göster
+            setInputLastStartDate(
+              formatDateTRFromISO(parsedLogs[parsedLogs.length - 1].startDate)
+            );
           }
         }
 
@@ -473,21 +502,28 @@ export default function PeriodScreen() {
     }
 
     const trimmedDate = inputLastStartDate.trim();
-    if (trimmedDate !== "" && !isValidISODate(trimmedDate)) {
-      Alert.alert(
-        "Tarih formatı hatalı",
-        "Lütfen tarihi 2025-11-24 şeklinde (YYYY-AA-GG) gir ya da takvimden seç."
-      );
-      return;
-    }
 
-    // ✅ Gelecek tarih kaydedilemesin (manuel giriş dahil)
-    if (trimmedDate !== "" && isFutureISODate(trimmedDate)) {
-      Alert.alert(
-        "Geçersiz tarih",
-        "Son regl başlangıcı ileri bir tarih olamaz. Lütfen bugünü veya geçmiş bir günü gir."
-      );
-      return;
+    let isoFromInput: string | null = null;
+
+    if (trimmedDate !== "") {
+      isoFromInput = parseTRDateToISO(trimmedDate);
+
+      if (!isoFromInput) {
+        Alert.alert(
+          "Tarih formatı hatalı",
+          "Lütfen tarihi 24.11.2025 şeklinde (GG.AA.YYYY) gir ya da takvimden seç."
+        );
+        return;
+      }
+
+      // ✅ Gelecek tarih kaydedilemesin
+      if (isFutureISODate(isoFromInput)) {
+        Alert.alert(
+          "Geçersiz tarih",
+          "Son regl başlangıcı ileri bir tarih olamaz. Lütfen bugünü veya geçmiş bir günü gir."
+        );
+        return;
+      }
     }
 
     const newSettings: PeriodSettings = {
@@ -497,35 +533,44 @@ export default function PeriodScreen() {
     setSettings(newSettings);
     await AsyncStorage.setItem(PERIOD_SETTINGS_KEY, JSON.stringify(newSettings));
 
-    if (trimmedDate !== "") {
-      const logsArr: PeriodLog[] = [{ startDate: trimmedDate }];
+    let effectiveLogs = logs;
+
+    if (isoFromInput) {
+      const logsArr: PeriodLog[] = [{ startDate: isoFromInput }];
       setLogs(logsArr);
       await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(logsArr));
+      effectiveLogs = logsArr;
     }
+
+    // 🔁 Ayarlar veya son regl tarihi değiştiyse, bildirimleri yeni değerlere göre sessizce güncelle
+    await scheduleCycleNotifications(effectiveLogs, newSettings, { silent: true });
 
     Alert.alert("Kaydedildi", "Döngü ayarların güncellendi.");
   };
 
   const handleTodayStarted = async () => {
-    const todayStr = formatDate(new Date());
+    const todayIso = formatDate(new Date());
 
-    const newLogs: PeriodLog[] = [{ startDate: todayStr }];
+    const newLogs: PeriodLog[] = [{ startDate: todayIso }];
     setLogs(newLogs);
-    setInputLastStartDate(todayStr);
+    setInputLastStartDate(formatDateTRFromISO(todayIso));
     await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(newLogs));
+
+    // 🔁 Yeni döngüye göre bildirimleri otomatik güncelle (sessiz)
+    await scheduleCycleNotifications(newLogs, settings, { silent: true });
 
     Alert.alert(
       "Kaydedildi",
-      "Bugünü regl başlangıcı olarak işaretledin. Tahmini sonraki tarih bu güne göre hesaplanacak."
+      "Bugünü regl başlangıcı olarak işaretledin. Tahmini sonraki tarih ve bildirimler bu güne göre güncellendi."
     );
   };
 
   const handleCalendarDayPress = async (day: DateObject) => {
     try {
-      const picked = day.dateString;
+      const pickedIso = day.dateString;
 
-      // ✅ Gelecek tarih seçilemesin (takvimden)
-      if (isFutureISODate(picked)) {
+      // ✅ Gelecek tarih seçilemesin (takvim ISO döner)
+      if (isFutureISODate(pickedIso)) {
         Alert.alert(
           "Geçersiz tarih",
           "Son regl başlangıcı ileri bir tarih olamaz. Lütfen bugünü veya geçmiş bir günü seç."
@@ -533,12 +578,15 @@ export default function PeriodScreen() {
         return;
       }
 
-      setInputLastStartDate(picked);
+      setInputLastStartDate(formatDateTRFromISO(pickedIso));
 
-      const newLogs: PeriodLog[] = [{ startDate: picked }];
+      const newLogs: PeriodLog[] = [{ startDate: pickedIso }];
       setLogs(newLogs);
 
       await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(newLogs));
+
+      // 🔁 Yeni tarihe göre bildirimleri otomatik güncelle (sessiz)
+      await scheduleCycleNotifications(newLogs, settings, { silent: true });
     } catch (e) {
       console.log("handleCalendarDayPress save error:", e);
       Alert.alert("Hata", "Tarih kaydedilemedi. Lütfen tekrar dene.");
@@ -546,22 +594,33 @@ export default function PeriodScreen() {
   };
 
   // ✅ SDK 54 + TS uyumlu: trigger = { type: DATE, date }
-  const scheduleCycleNotifications = async () => {
+  // baseLogs & baseSettings parametreli, silent mod destekli
+  const scheduleCycleNotifications = async (
+    baseLogs: PeriodLog[],
+    baseSettings: PeriodSettings | null,
+    options?: { silent?: boolean }
+  ) => {
+    const silent = options?.silent ?? false;
+
     try {
-      if (!settings || logs.length === 0) {
-        Alert.alert(
-          "Eksik bilgi",
-          "Önce son regl başlangıcını ve döngü süreni kaydetmelisin."
-        );
+      if (!baseSettings || baseLogs.length === 0) {
+        if (!silent) {
+          Alert.alert(
+            "Eksik bilgi",
+            "Önce son regl başlangıcını ve döngü süreni kaydetmelisin."
+          );
+        }
         return;
       }
 
-      const next = getNextPeriodStart(logs, settings);
+      const next = getNextPeriodStart(baseLogs, baseSettings);
       if (!next) {
-        Alert.alert(
-          "Hesaplanamıyor",
-          "Tahmini bir sonraki regl tarihi şimdilik hesaplanamıyor."
-        );
+        if (!silent) {
+          Alert.alert(
+            "Hesaplanamıyor",
+            "Tahmini bir sonraki regl tarihi şimdilik hesaplanamıyor."
+          );
+        }
         return;
       }
 
@@ -569,10 +628,12 @@ export default function PeriodScreen() {
       const now = new Date();
 
       if (nextDate <= now) {
-        Alert.alert(
-          "Tarih geçmiş",
-          "Tahmini regl tarihi geçmiş görünüyor. Lütfen son regl başlangıcını güncelle."
-        );
+        if (!silent) {
+          Alert.alert(
+            "Tarih geçmiş",
+            "Tahmini regl tarihi geçmiş görünüyor. Lütfen son regl başlangıcını güncelle."
+          );
+        }
         return;
       }
 
@@ -583,15 +644,22 @@ export default function PeriodScreen() {
       let finalStatus = existing.status;
 
       if (finalStatus !== "granted") {
+        if (silent) {
+          // Otomatik modda izin istemiyoruz, sessizce vazgeç
+          return;
+        }
+
         const req = await Notifications.requestPermissionsAsync();
         finalStatus = req.status;
       }
 
       if (finalStatus !== "granted") {
-        Alert.alert(
-          "İzin yok",
-          "Bildirim gönderebilmem için bildirim izni vermen gerekiyor."
-        );
+        if (!silent) {
+          Alert.alert(
+            "İzin yok",
+            "Bildirim gönderebilmem için bildirim izni vermen gerekiyor."
+          );
+        }
         return;
       }
 
@@ -632,20 +700,27 @@ export default function PeriodScreen() {
       });
       ids.start = startId;
 
-      await AsyncStorage.setItem(CYCLE_NOTIFICATION_IDS_KEY, JSON.stringify(ids));
-
-      Alert.alert(
-        "Bildirimler ayarlandı",
-        "Bu döngü için regl bildirimleri planlandı. Son regl tarihini güncellediğinde istersen yeniden ayarlayabilirsin."
+      await AsyncStorage.setItem(
+        CYCLE_NOTIFICATION_IDS_KEY,
+        JSON.stringify(ids)
       );
+
+      if (!silent) {
+        Alert.alert(
+          "Bildirimler ayarlandı",
+          "Bu döngü için regl bildirimleri planlandı. Son regl tarihini güncellediğinde bildirimler otomatik olarak güncellenecek."
+        );
+      }
     } catch (e: any) {
       console.log("scheduleCycleNotifications error:", e);
-      Alert.alert(
-        "Hata",
-        e?.message
-          ? `Bildirimler ayarlanamadı: ${e.message}`
-          : "Bildirimler ayarlanamadı. Lütfen tekrar dene."
-      );
+      if (!silent) {
+        Alert.alert(
+          "Hata",
+          e?.message
+            ? `Bildirimler ayarlanamadı: ${e.message}`
+            : "Bildirimler ayarlanamadı. Lütfen tekrar dene."
+        );
+      }
     }
   };
 
@@ -714,13 +789,18 @@ export default function PeriodScreen() {
         {/* ✅ Bildirim butonu: döngü özetinin hemen üstünde */}
         <Pressable
           style={styles.secondaryButton}
-          onPress={scheduleCycleNotifications}
+          onPress={() =>
+            scheduleCycleNotifications(logs, settings, { silent: false })
+          }
         >
-          <Text style={styles.secondaryButtonText}>Döngün İçin Bildirimleri Aç</Text>
+          <Text style={styles.secondaryButtonText}>
+            Döngün İçin Bildirimleri Aç
+          </Text>
         </Pressable>
+
         <Text style={styles.helperText}>
-          Bildirim iznin açıksa, tahmini reglden 2 gün önce ve tahmini regl gününde
-          hatırlatıcı alırsın.
+          Bildirim iznin açıksa tahmini reglden 2 gün önce ve tahmini regl
+          gününde hatırlatıcı alırsın.
         </Text>
 
         {/* Döngü Özeti */}
@@ -772,9 +852,9 @@ export default function PeriodScreen() {
           </View>
 
           <Text style={styles.summaryNote}>
-            Tahmini tarih ve verimli günler, son regl başlangıcın ve ortalama döngü
-            süren üzerinden hesaplanır. Döngünü güncelledikçe bu alanlar da senin
-            ritmine daha çok uyum sağlar.
+            Tahmini tarih ve verimli günler, son regl başlangıcın ve ortalama
+            döngü süren üzerinden hesaplanır. Döngünü güncelledikçe bu alanlar
+            da senin ritmine daha çok uyum sağlar.
           </Text>
         </View>
 
@@ -865,11 +945,14 @@ export default function PeriodScreen() {
                   style={[
                     styles.moodChip,
                     selected && styles.moodChipSelected,
-                    opt.key === "low" && selected && { backgroundColor: "#FAD4D4" },
+                    opt.key === "low" &&
+                      selected && { backgroundColor: "#FAD4D4" },
                     opt.key === "neutral" &&
                       selected && { backgroundColor: "#FFE8C2" },
-                    opt.key === "good" && selected && { backgroundColor: "#D4F5D6" },
-                    opt.key === "great" && selected && { backgroundColor: "#E9D8FF" },
+                    opt.key === "good" &&
+                      selected && { backgroundColor: "#D4F5D6" },
+                    opt.key === "great" &&
+                      selected && { backgroundColor: "#E9D8FF" },
                   ]}
                   onPress={() => handleSelectMood(opt.key)}
                 >
@@ -895,7 +978,10 @@ export default function PeriodScreen() {
               return (
                 <Pressable
                   key={symptom}
-                  style={[styles.symptomChip, selected && styles.symptomChipSelected]}
+                  style={[
+                    styles.symptomChip,
+                    selected && styles.symptomChipSelected,
+                  ]}
                   onPress={() => handleToggleSymptom(symptom)}
                 >
                   <Text
@@ -924,7 +1010,7 @@ export default function PeriodScreen() {
           <Text style={styles.inputLabel}>Son regl başlangıcın</Text>
           <TextInput
             style={styles.input}
-            placeholder="Örn: 2025-11-24"
+            placeholder="Örn: 24.11.2025"
             value={inputLastStartDate}
             onChangeText={setInputLastStartDate}
           />
@@ -952,8 +1038,9 @@ export default function PeriodScreen() {
           </Pressable>
 
           <Text style={styles.helperText}>
-            Son regl başlangıcını veya döngü süreni değiştirdiğinde bildirimleri
-            yeniden ayarlaman gerekebilir.
+            Son regl başlangıcını veya döngü süreni değiştirdiğinde uygulama
+            bildirimleri otomatik olarak günceller. İstersen yukarıdaki butondan
+            elle de yeniden ayarlayabilirsin.
           </Text>
         </View>
       </ScrollView>
