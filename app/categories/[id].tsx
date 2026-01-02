@@ -18,9 +18,12 @@ import {
 
 import { sbGetMany } from "../../lib/supabase";
 
-const CATEGORY_CACHE_KEY_PREFIX = "wellshe_category_cache_";
+const CATEGORY_CACHE_KEY_PREFIX = "wellshe_category_cache_"; // (şimdilik kullanılmıyor ama dursun)
 const FAVORITES_KEY = "favorite_articles";
 const ASTRO_IDS_KEY = "wellshe_astro_notification_ids";
+
+const INITIAL_LIMIT = 5; // 👉 ilk açılışta gösterilecek içerik sayısı
+const LOAD_MORE_LIMIT = 10; // 👉 her "Daha fazla göster" tıklamasında gelecek ekstra içerik sayısı
 
 // App route id -> DB category_id (articles.category_id sütunundaki değer)
 const categoryIdToDbId: Record<string, string> = {
@@ -153,13 +156,19 @@ export default function CategoryScreen() {
   const id = Array.isArray(rawId) ? rawId[0] : rawId;
 
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
-  const [remoteItems, setRemoteItems] = useState<RemoteItem[]>([]);
-  const [loadingRemote, setLoadingRemote] = useState(false);
 
-  // ⭐ Kaç tane kart gösteriyoruz? (Daha fazla göster için)
-  const [showCount, setShowCount] = useState(10);
+  // 🔹 Artık tek liste var: şu ana kadar yüklenmiş içerikler
+  const [items, setItems] = useState<RemoteItem[]>([]);
 
-  // ✅ id yoksa
+  // 🔹 Pagination state
+  const [offset, setOffset] = useState(0);
+  const [loadingInitial, setLoadingInitial] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  const loadingRemote = loadingInitial || loadingMore;
+
+  // ⭐ id yoksa
   if (!id) {
     return (
       <View style={styles.center}>
@@ -173,7 +182,6 @@ export default function CategoryScreen() {
     id
   );
 
-  // ✅ kategori değilse: local redirect yok (local içerik zaten yok)
   if (!isValidCategory) {
     return (
       <View style={styles.center}>
@@ -219,162 +227,115 @@ export default function CategoryScreen() {
 
   const isFavorite = (articleId: string) => favoriteIds.includes(articleId);
 
-  // ✅ Remote fetch fonksiyonu
-  const loadRemote = useCallback(
-    async (useCacheFirst = false) => {
-      const dbCategoryId = categoryIdToDbId[id] ?? id;
-      const cacheKey = `${CATEGORY_CACHE_KEY_PREFIX}${dbCategoryId}`;
+  // 🔹 Supabase’ten sayfa sayfa veri çeken fonksiyon
+  async function fetchPage(options: { reset: boolean }) {
+    const { reset } = options;
+    const dbCategoryId = categoryIdToDbId[id] ?? id;
 
-      console.log("[Category] loadRemote START", {
-        id,
-        dbCategoryId,
-        useCacheFirst,
+    const limit = reset ? INITIAL_LIMIT : LOAD_MORE_LIMIT;
+    const currentOffset = reset ? 0 : offset;
+
+    console.log("[Category] fetchPage START", {
+      id,
+      dbCategoryId,
+      reset,
+      limit,
+      offset: currentOffset,
+      at: new Date().toISOString(),
+    });
+
+    try {
+      if (reset) {
+        setLoadingInitial(true);
+        setHasMore(true);
+      } else {
+        if (loadingMore) return; // çifte tıklamaya karşı koruma
+        setLoadingMore(true);
+      }
+
+      const path =
+        `/article_translations` +
+        `?select=article_id,lang,title,summary,slug,created_at,` +
+        `articles!inner(id,category_id,status,created_at,cover_asset_id,assets(bucket,path))` +
+        `&lang=eq.tr` +
+        `&articles.status=eq.published` +
+        `&articles.category_id=eq.${enc(dbCategoryId)}` +
+        `&order=created_at.desc` +
+        `&limit=${limit}` +
+        `&offset=${currentOffset}`;
+
+      console.log("[Category] supabase query START", {
+        path,
         at: new Date().toISOString(),
       });
 
-      try {
-        if (useCacheFirst) {
-          // 1) Varsa cache'i hemen göster (hızlı açılış için)
-          const cached = await AsyncStorage.getItem(cacheKey);
-          if (cached) {
-            try {
-              const parsed = JSON.parse(cached) as RemoteItem[];
-              console.log("[Category] cache HIT", {
-                count: parsed.length,
-              });
-              setRemoteItems(parsed);
-              setShowCount(10); // cache'ten gelse de ilk 10 göster
-            } catch {
-              console.log("[Category] cache parse error");
-            }
-          } else {
-            console.log("[Category] cache MISS", { cacheKey });
-          }
-        }
+      const rows = await sbGetMany<RemoteItem>(path);
+      const safeRows = rows ?? [];
 
-        setLoadingRemote(true);
+      console.log("[Category] supabase query END", {
+        count: safeRows.length,
+        at: new Date().toISOString(),
+      });
 
-        const path =
-          `/article_translations` +
-          `?select=article_id,lang,title,summary,slug,created_at,` +
-          `articles!inner(id,category_id,status,created_at,cover_asset_id,assets(bucket,path))` +
-          `&lang=eq.tr` +
-          `&articles.status=eq.published` +
-          `&articles.category_id=eq.${enc(dbCategoryId)}` +
-          `&order=created_at.desc` +
-          `&limit=50`; // ✅ TÜM içerikler gelmeye devam ediyor
-
-        console.log("[Category] supabase query START", {
-          path,
-          at: new Date().toISOString(),
-        });
-
-        const rows = await sbGetMany<RemoteItem>(path);
-        const safeRows = rows ?? [];
-
-        console.log("[Category] supabase query END", {
-          count: safeRows.length,
-          at: new Date().toISOString(),
-        });
-
-        setRemoteItems(safeRows);
-        setShowCount(10); // yeni veri geldiğinde görünür sayıyı resetle
-
-        // 2) Güncel veriyi cache'e yaz
-        await AsyncStorage.setItem(cacheKey, JSON.stringify(safeRows));
-      } catch (e: any) {
-        console.log("Supabase kategori içerik hatası:", e?.message ?? e);
-        if (!useCacheFirst) {
-          setRemoteItems([]);
-        }
-      } finally {
-        setLoadingRemote(false);
-        console.log("[Category] loadRemote END", {
-          at: new Date().toISOString(),
-        });
+      if (reset) {
+        setItems(safeRows);
+        setOffset(safeRows.length);
+      } else {
+        setItems((prev) => [...prev, ...safeRows]);
+        setOffset((prev) => prev + safeRows.length);
       }
-    },
-    [id]
-  );
 
-  // ✅ İlk girişte: önce cache, sonra arka planda Supabase
+      // gelen kayıt sayısı limit'ten küçükse devamı yoktur
+      setHasMore(safeRows.length === limit);
+    } catch (e: any) {
+      console.log("Supabase kategori içerik hatası:", e?.message ?? e);
+      if (reset) {
+        setItems([]);
+        setOffset(0);
+        setHasMore(false);
+      }
+    } finally {
+      if (reset) {
+        setLoadingInitial(false);
+      } else {
+        setLoadingMore(false);
+      }
+      console.log("[Category] fetchPage END", {
+        reset,
+        at: new Date().toISOString(),
+      });
+    }
+  }
+
+  // ✅ İlk giriş: sadece son 5 içerik
   useEffect(() => {
-    console.log("[Category] useEffect mount loadRemote(true)", {
+    console.log("[Category] mount -> fetchPage(reset=true)", {
       id,
       at: new Date().toISOString(),
     });
-    loadRemote(true);
-  }, [loadRemote, id]);
+    fetchPage({ reset: true });
+  }, [id]);
 
-  // ✅ Ekrana her dönüşte: sadece Supabase'ten tazele
+  // ✅ Ekrana her geri dönüşte: yine son 5’i taze çek (en güncel liste için)
   useFocusEffect(
     useCallback(() => {
-      console.log("[Category] useFocusEffect -> loadRemote(false)", {
+      console.log("[Category] focus -> fetchPage(reset=true)", {
         id,
         at: new Date().toISOString(),
       });
-      loadRemote(false);
-    }, [loadRemote, id])
+      fetchPage({ reset: true });
+    }, [id])
   );
 
-  // ✅ Astro (sizde çalışan yöntem): 52 hafta DATE ile tek tek
-  const scheduleWeeklyAstroReminderAt18 = useCallback(async () => {
-    const ok = await ensureNotificationPermission();
-    if (!ok) {
-      Alert.alert(
-        "Bildirim izni yok",
-        "Astroloji hatırlatmalarını alabilmek için bildirim izni vermen gerekiyor."
-      );
-      return;
-    }
-
-    await ensureAndroidChannel();
-    await cancelStoredNotifications(ASTRO_IDS_KEY);
-
-    const start = getNextSundayAt(18, 0);
-    const weeks = 52;
-    const ids: string[] = [];
-
-    try {
-      for (let i = 0; i < weeks; i++) {
-        const date = new Date(start);
-        date.setDate(start.getDate() + i * 7);
-
-        const notifId = await Notifications.scheduleNotificationAsync({
-          content: {
-            title: "Haftanın Astrolojik Yorumu 🔮",
-            body: "Yeni hafta için burç yorumlarını WellShe'de okumayı unutma.",
-            sound: false,
-            ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
-          },
-          trigger: {
-            type: Notifications.SchedulableTriggerInputTypes.DATE,
-            date,
-          },
-        });
-
-        ids.push(notifId);
-      }
-
-      await AsyncStorage.setItem(ASTRO_IDS_KEY, JSON.stringify(ids));
-      Alert.alert("Tamamdır ✨", "Her pazar 18:00'da astroloji bildirimi alacaksın.");
-    } catch (e) {
-      console.log("Astroloji bildirimleri planlanırken hata:", e);
-      Alert.alert("Hata", "Astroloji bildirimi ayarlanırken bir sorun oluştu.");
-    }
-  }, []);
-
-  const emptyState = !loadingRemote && remoteItems.length === 0;
-
-  // ⭐ Ekranda gerçekten gösterdiğimiz liste
-  const visibleItems = remoteItems.slice(0, showCount);
-  const hasMoreToShow = remoteItems.length > showCount;
+  const emptyState = !loadingRemote && items.length === 0;
 
   console.log("[Category] render STATE", {
     id,
-    total: remoteItems.length,
-    showCount,
-    loadingRemote,
+    total: items.length,
+    offset,
+    loadingInitial,
+    loadingMore,
+    hasMore,
   });
 
   return (
@@ -387,13 +348,69 @@ export default function CategoryScreen() {
             <Text style={styles.reminderTitle}>Haftalık Burç Bildirimi</Text>
             <Text style={styles.reminderText}>
               Her Pazar saat 18:00&apos;da yeni haftanın astrolojik enerjisini ve
-              burç yorumlarını hatırlatan bir bildirim almak için aşağıdaki butona
-              dokun.
+              burç yorumlarını hatırlatan bir bildirim almak için aşağıdaki
+              butona dokun.
             </Text>
 
             <Pressable
               style={styles.reminderButton}
-              onPress={scheduleWeeklyAstroReminderAt18}
+              onPress={async () => {
+                const ok = await ensureNotificationPermission();
+                if (!ok) {
+                  Alert.alert(
+                    "Bildirim izni yok",
+                    "Astroloji hatırlatmalarını alabilmek için bildirim izni vermen gerekiyor."
+                  );
+                  return;
+                }
+
+                await ensureAndroidChannel();
+                await cancelStoredNotifications(ASTRO_IDS_KEY);
+
+                const start = getNextSundayAt(18, 0);
+                const weeks = 52;
+                const ids: string[] = [];
+
+                try {
+                  for (let i = 0; i < weeks; i++) {
+                    const date = new Date(start);
+                    date.setDate(start.getDate() + i * 7);
+
+                    const notifId =
+                      await Notifications.scheduleNotificationAsync({
+                        content: {
+                          title: "Haftanın Astrolojik Yorumu 🔮",
+                          body: "Yeni hafta için burç yorumlarını WellShe'de okumayı unutma.",
+                          sound: false,
+                          ...(Platform.OS === "android"
+                            ? { channelId: "reminders" }
+                            : {}),
+                        },
+                        trigger: {
+                          type: Notifications.SchedulableTriggerInputTypes.DATE,
+                          date,
+                        },
+                      });
+
+                    ids.push(notifId);
+                  }
+
+                  await AsyncStorage.setItem(ASTRO_IDS_KEY, JSON.stringify(ids));
+                  Alert.alert(
+                    "Tamamdır ✨",
+                    "Her pazar 18:00'da astroloji bildirimi alacaksın."
+                  );
+                } catch (e) {
+                  console.log(
+                    "Astroloji bildirimleri planlanırken hata:",
+                    e
+                  );
+                  Alert.alert(
+                    "Hata",
+                    "Astroloji bildirimi ayarlanırken bir sorun oluştu."
+                  );
+                }
+              }}
             >
               <Text style={styles.reminderButtonText}>
                 🔔 Haftalık Astroloji Bildirimini Aç
@@ -402,7 +419,7 @@ export default function CategoryScreen() {
           </View>
         )}
 
-        {loadingRemote && (
+        {loadingInitial && (
           <View style={styles.center}>
             <Text>İçerikler kontrol ediliyor…</Text>
           </View>
@@ -414,27 +431,27 @@ export default function CategoryScreen() {
           </View>
         )}
 
-        {visibleItems.map((item) => {
+        {items.map((item) => {
           const imageUrl = getPublicAssetUrl(item.articles?.assets ?? null);
 
           return (
             <View key={item.article_id} style={styles.articleCard}>
               <Pressable
-  style={{ flex: 1 }}
-  onPress={() =>
-    router.push({
-      pathname: item.slug
-        ? `/article/${item.slug}`
-        : `/article/${item.article_id}`,
-      params: {
-        articleId: item.article_id,
-        initialTitle: item.title ?? "",
-        initialSummary: item.summary ?? "",
-        initialCoverUrl: imageUrl ?? "",
-      },
-    })
-  }
->
+                style={{ flex: 1 }}
+                onPress={() =>
+                  router.push({
+                    pathname: item.slug
+                      ? `/article/${item.slug}`
+                      : `/article/${item.article_id}`,
+                    params: {
+                      articleId: item.article_id,
+                      initialTitle: item.title ?? "",
+                      initialSummary: item.summary ?? "",
+                      initialCoverUrl: imageUrl ?? "",
+                    },
+                  })
+                }
+              >
                 {imageUrl ? (
                   <Image
                     source={{ uri: imageUrl }}
@@ -459,13 +476,19 @@ export default function CategoryScreen() {
           );
         })}
 
-        {hasMoreToShow && (
+        {hasMore && !loadingInitial && (
           <View style={styles.loadMoreBox}>
             <Pressable
-              onPress={() => setShowCount((prev) => prev + 10)}
+              onPress={() => {
+                if (!loadingMore && hasMore) {
+                  fetchPage({ reset: false });
+                }
+              }}
               style={styles.loadMoreButton}
             >
-              <Text style={styles.loadMoreText}>Daha fazla göster</Text>
+              <Text style={styles.loadMoreText}>
+                {loadingMore ? "Yükleniyor..." : "Daha fazla göster"}
+              </Text>
             </Pressable>
           </View>
         )}
@@ -532,7 +555,6 @@ const styles = StyleSheet.create({
   favoriteButton: { paddingHorizontal: 8, paddingVertical: 4, marginLeft: 8 },
   favoriteIcon: { fontSize: 24 },
 
-  // ⭐ "Daha fazla göster" butonu
   loadMoreBox: {
     alignItems: "center",
     marginTop: 4,
