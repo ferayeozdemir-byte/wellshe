@@ -24,7 +24,7 @@ export default function SponsorSplash({
       <Text style={styles.label}>Enerji Sponsorumuz</Text>
 
       <Image
-        source={require("../assets/sponsors/global-solar.png")}
+        source={require("../../assets/sponsors/global-solar.png")}
         style={styles.logo}
         resizeMode="contain"
       />
