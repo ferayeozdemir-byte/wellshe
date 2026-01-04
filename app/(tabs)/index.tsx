@@ -25,7 +25,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import AdBanner from "../../components/AdBanner";
 import { type CategoryId } from "../../data/content";
