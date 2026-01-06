@@ -873,7 +873,7 @@ export default function PeriodScreen() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Takvim Görünümü</Text>
             <Text style={styles.cardDescription}>
-              Aşağıdaki takvimde son regl başlangıcını takvimden de seçebilirsin.
+              Son regl başlangıcını takvimden de seçebilirsin.
               Geçmiş regl günlerin, tahmini regl dönemlerin ve verimli günlerin
               renklerle işaretlenir.
             </Text>

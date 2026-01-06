@@ -151,6 +151,11 @@ function pickLatestWeekly(
   return sorted[0] ?? arr[0] ?? null;
 }
 
+// 🟣 SAĞLIKLI BESLENME sponsor ikonu (TEST AMAÇLI)
+const CATEGORY_SPONSOR_ICONS: Partial<Record<CategoryKey, any>> = {
+  healthyEating: require("../../assets/sponsors/categories/healthyEating-period.png"),
+};
+
 // Kategori menüsü
 const categories: { key: CategoryKey; label: string }[] = [
   { key: "healthyEating", label: "Sağlıklı\nBeslenme" },
@@ -373,7 +378,8 @@ function getTodayMotivation(): string {
 }
 
 export default function HomeScreen() {
-  const [showSponsor, setShowSponsor] = useState(true);
+  const [showSponsor, setShowSponsor] = useState(true); // Splash için
+  const [showCategorySponsors, setShowCategorySponsors] = useState(false); // Kategori ikonları için
 
   // Home mount log
   useEffect(() => {
@@ -691,6 +697,19 @@ export default function HomeScreen() {
         setIsLoading(false);
       }
     };
+
+      // 🌀 Kategorilerde ikon <-> sponsor döngüsü (2 sn)
+  useFocusEffect(
+    useCallback(() => {
+      setShowCategorySponsors(false);
+
+      const intervalId = setInterval(() => {
+        setShowCategorySponsors(prev => !prev);
+      }, 2000);
+
+      return () => clearInterval(intervalId);
+    }, [])
+  );
 
     void loadUser();
   }, []);
@@ -1225,22 +1244,26 @@ export default function HomeScreen() {
             contentContainerStyle={styles.menuStoriesContent}
           >
             {categories.map((cat) => (
-              <TouchableOpacity
-                key={cat.key}
-                style={styles.menuItem}
-                onPress={() => handleCategoryPress(cat.key)}
-              >
-                <View style={styles.menuCircle}>
-                  <Image
-                    source={CATEGORY_ICONS[cat.key]}
-                    style={styles.menuIcon}
-                    resizeMode="cover"
-                  />
-                </View>
+  <TouchableOpacity
+    key={cat.key}
+    style={styles.menuItem}
+    onPress={() => handleCategoryPress(cat.key)}
+  >
+    <View style={styles.menuCircle}>
+      <Image
+        source={
+          showCategorySponsors && CATEGORY_SPONSOR_ICONS[cat.key]
+            ? CATEGORY_SPONSOR_ICONS[cat.key]!
+            : CATEGORY_ICONS[cat.key]
+        }
+        style={styles.menuIcon}
+        resizeMode="cover"
+      />
+    </View>
 
-                <Text style={styles.menuLabel}>{cat.label}</Text>
-              </TouchableOpacity>
-            ))}
+    <Text style={styles.menuLabel}>{cat.label}</Text>
+  </TouchableOpacity>
+))}
           </ScrollView>
 
           {/* 🔥 Kalori hesaplama butonu */}
