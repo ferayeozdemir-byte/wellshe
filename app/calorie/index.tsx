@@ -281,7 +281,7 @@ export default function CalorieScreen() {
             <View style={styles.headerCard}>
               <Text style={styles.title}>Kalori</Text>
               <Text style={styles.subtitle}>
-                Günlük hedefinizi hesaplayın ve yediklerinizi ekleyerek toplam kaloriyi takip edin.
+                Günlük hedefini hesapla ve yediklerini ekleyerek aldığın toplam kaloriyi takip et.
               </Text>
 
               <View style={styles.segmentRow}>

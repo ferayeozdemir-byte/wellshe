@@ -297,7 +297,7 @@ export default function ProfileScreen() {
               WellShe’ye küçük bir yıldız bırak 🌟
             </Text>
             <Text style={styles.sectionDescription}>
-              Uygulamayı beğendiysen, mağazada vereceğin puan çok şey değiştirir.
+              Uygulamayı beğendiysen mağazada vereceğin her puan çok şey değiştirir.
             </Text>
 
             <View style={styles.rateRow}>

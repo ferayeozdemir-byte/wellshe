@@ -151,11 +151,6 @@ function pickLatestWeekly(
   return sorted[0] ?? arr[0] ?? null;
 }
 
-// 🟣 SAĞLIKLI BESLENME sponsor ikonu (TEST AMAÇLI)
-const CATEGORY_SPONSOR_ICONS: Partial<Record<CategoryKey, any>> = {
-  healthyEating: require("../../assets/sponsors/categories/healthyEating-period.png"),
-};
-
 // Kategori menüsü
 const categories: { key: CategoryKey; label: string }[] = [
   { key: "healthyEating", label: "Sağlıklı\nBeslenme" },
@@ -190,37 +185,37 @@ const MOTIVATION_QUOTES: string[] = [
   "Küçük bir adım bile yerinde saymaktan daha iyidir.",
   "Dinlenmek, pes etmek değildir. Yeniden başlamak için nefes almaktır.",
   "Kendini sevdiğinde dünya sana farklı görünmeye başlar.",
-  "Bugün, yarının daha iyi olması için yapabileceğin minicik bir şey seç.",
-  "İç sesini duy: Zaten sandığından daha güçlüsün.",
-  "Bugün kendin için attığın her küçük adım yarın büyük bir değişime dönüşür.",
+  "Yarının daha iyi olması için yapabileceğin minicik bir şey seç.",
+  "İç sesini duy, zaten sandığından daha güçlüsün!",
+  "Bugün kendin için attığın her küçük adım, yarın büyük bir değişime dönüşür.",
   "Kendine iyi baktığında hayatın her alanı iyileşir.",
   "Bugün, yeni bir başlangıç için en doğru zaman.",
   "Küçük ilerlemeler büyük yolculukların temelidir.",
-  "Kendine inandığında geri kala her şeyin yolu açılır.",
+  "Kendine inandığında geri kalan her şeyin yolu açılır.",
   "Dengeni bulduğunda hayatın ritmi değişir.",
   "Zihnini sadeleştir, yolun netleşsin.",
   "Senin için doğru olan zaten sana doğru gelir.",
   "Kendine verdiğin söz, en değerli sözdür.",
   "Bugün de pes etme. Çünkü hikâyen yeni başlıyor.",
-  "Kendini geliştirmek, kendine verebileceğin en güzel hediyedir.",
+  "Kendini geliştirmek, kendine verebileceğin en güzel hediye.",
   "Bir adım at, bırak yol seni karşılasın.",
   "Kendini sevmek, hayatın kapısını açar.",
   "Nefes al, sakinleş ve enerjini tazele.",
   "Bugün, yapabildiğinin en iyisini yapman yeterli.",
-  "Yavaş ilerlemek de bir ilerlemedir.",
+  "Yavaş ilerlemek de bir ilerleme.",
   "Kendini zorladığın her gün biraz daha güçlenirsin.",
   "Odaklandığın şey büyür, iyiyi seç.",
   "Zihnini sakinleştirdiğinde kalbin konuşur.",
-  "Hiçbir şey tesadüf değildir. Her şey büyük bir bulmacanın parçasıdır.",
+  "Hiçbir şey tesadüf değil. Her şey büyük bir bulmacanın parçası.",
   "Senin yolun, senin hızın.",
-  "İyileşmek bir yolculuktur, adım adım güzelleşir.",
+  "İyileşmek bir yolculuk ve yol, adım adım güzelleşir.",
   "Kendine sınır koyma; potansiyelin düşündüğünden büyük.",
   "İçindeki güç sandığından daha fazla.",
   "Bir dur, nefes al ve devam et.",
-  "Unutma: Değişim küçük bir karar ile başlar.",
+  "Unutma, dDeğişim küçük bir karar ile başlar.",
   "Kendini affet. Yeniden başlamak özgürlüktür.",
   "Her gün, bir önceki günden daha iyi olabilirsin.",
-  "Bugün kendine verdiğin her emek yarın mutluluk olur.",
+  "Bugün kendine verdiğin her emek, yarın mutluluk olur.",
   "Enerjini koru. Her yere yetişmek zorunda değilsin.",
   "Zor günler, güçlenen senin habercisidir.",
   "Şefkatle yaklaş. En çok da kendine.",
@@ -245,7 +240,7 @@ const MOTIVATION_QUOTES: string[] = [
   "Küçük gelişmeleri kutla, onlar sana güç verir.",
   "Hayallerin sandığından daha yakın!",
   "Kendinle gurur duy, bugünlere kolay gelmedin!",
-  "Sınırlarını aşman gereken tek kişi dünkü sensin.",
+  "Sınırlarını aşman gereken tek kişi, dünkü sensin.",
   "Bugün, yeniden başlamak için mükemmel bir gün.",
   "Zihnini karıştıran şeyleri sadeleştir.",
   "Enerjini doğru yere yönlendirdiğinde sonuçların değiştiğini görebilirsin.",
@@ -258,7 +253,7 @@ const MOTIVATION_QUOTES: string[] = [
   "Kendin için durduğunda bile ilerliyorsun.",
   "Bugün güzellikleri fark etmeye niyet et.",
   "Hayat senden yana. Yeter ki sen de kendinden yana ol.",
-  "En zor günde bile içinde bir kıvılcım vardır.",
+  "En zor günün bile içinde bir kıvılcım vardır.",
   "Her gün yeniden başlamak için bir şans.",
   "Kalbini dinlediğinde yolunu bulursun.",
   "Ne kadar ilerlediğini fark etmek için bir an dur.",
@@ -269,7 +264,7 @@ const MOTIVATION_QUOTES: string[] = [
   "Kendini yenilemek adına harekete geçmek için asla geç değil.",
   "Şefkati bir prensip hâline getir. En çok da kendin için.",
   "Zihnin sakinleştiğinde çözümler belirir.",
-  "Adım adım ilerlediğinde büyük işler başarırsın.",
+  "Adım adım ilerlediğinde büyük işleri başarırsın.",
   "Kendine inandığında evren de seninle birlikte çalışır.",
   "İçindeki huzur en güzel rehberin.",
   "Kendini hafife alma, potansiyelin büyük!",
@@ -378,8 +373,7 @@ function getTodayMotivation(): string {
 }
 
 export default function HomeScreen() {
-  const [showSponsor, setShowSponsor] = useState(true); // Splash için
-  const [showCategorySponsors, setShowCategorySponsors] = useState(false); // Kategori ikonları için
+  const [showSponsor, setShowSponsor] = useState(true);
 
   // Home mount log
   useEffect(() => {
@@ -697,19 +691,6 @@ export default function HomeScreen() {
         setIsLoading(false);
       }
     };
-
-      // 🌀 Kategorilerde ikon <-> sponsor döngüsü (2 sn)
-  useFocusEffect(
-    useCallback(() => {
-      setShowCategorySponsors(false);
-
-      const intervalId = setInterval(() => {
-        setShowCategorySponsors(prev => !prev);
-      }, 2000);
-
-      return () => clearInterval(intervalId);
-    }, [])
-  );
 
     void loadUser();
   }, []);
@@ -1185,7 +1166,7 @@ export default function HomeScreen() {
           <View style={styles.smallCard}>
             <Text style={styles.smallCardTitle}>Su Hatırlatıcısı 💧</Text>
             <Text style={styles.smallCardText}>
-              Bugünkü hedefin: {WATER_GOAL} bardak su.{"\n"}
+              Bugünkü hedefin, {WATER_GOAL} bardak su.{"\n"}
               Şu ana kadar {waterCount} bardak içtin.
             </Text>
 
@@ -1244,26 +1225,22 @@ export default function HomeScreen() {
             contentContainerStyle={styles.menuStoriesContent}
           >
             {categories.map((cat) => (
-  <TouchableOpacity
-    key={cat.key}
-    style={styles.menuItem}
-    onPress={() => handleCategoryPress(cat.key)}
-  >
-    <View style={styles.menuCircle}>
-      <Image
-        source={
-          showCategorySponsors && CATEGORY_SPONSOR_ICONS[cat.key]
-            ? CATEGORY_SPONSOR_ICONS[cat.key]!
-            : CATEGORY_ICONS[cat.key]
-        }
-        style={styles.menuIcon}
-        resizeMode="cover"
-      />
-    </View>
+              <TouchableOpacity
+                key={cat.key}
+                style={styles.menuItem}
+                onPress={() => handleCategoryPress(cat.key)}
+              >
+                <View style={styles.menuCircle}>
+                  <Image
+                    source={CATEGORY_ICONS[cat.key]}
+                    style={styles.menuIcon}
+                    resizeMode="cover"
+                  />
+                </View>
 
-    <Text style={styles.menuLabel}>{cat.label}</Text>
-  </TouchableOpacity>
-))}
+                <Text style={styles.menuLabel}>{cat.label}</Text>
+              </TouchableOpacity>
+            ))}
           </ScrollView>
 
           {/* 🔥 Kalori hesaplama butonu */}

@@ -12,77 +12,74 @@ export default function PrivacyScreen() {
         <Text style={styles.title}>Gizlilik ve Veri Politikası</Text>
 
         <Text style={styles.paragraph}>
-          WellShe, kullanıcının günlük yaşamını, döngü takibini ve iyi olma
-          hâlini desteklemek için tasarlanmış kişisel bir yardımcı uygulamadır.
-          Uygulama, şu anki sürümünde verilerinizi yalnızca cihazınızda
-          saklar; haricî bir sunucuya, buluta veya üçüncü parti servise
-          göndermez.
+          WellShe; kadınların günlük yaşamını, döngü takibini ve iyi olma hâlini
+          desteklemek amacıyla tasarlanmış bir mobil uygulamadır. Uygulama;
+          reklam gösterebilmek ve hata/çökme sorunlarını tespit edebilmek için
+          bazı anonim teknik verileri işler.
         </Text>
 
-        <Text style={styles.subtitle}>Hangi veriler saklanır?</Text>
+        <Text style={styles.subtitle}>Hangi veriler cihazda saklanır?</Text>
         <Text style={styles.paragraph}>
-          • Uygulama içinde girdiğiniz ad bilginiz{"\n"}
-          • Regl döngüsü ile ilgili girdiğiniz tarih ve ayar bilgileri{"\n"}
-          • Uygulamayı kullanırken yaptığınız tercihler (bildirim tercihleri vb.)
+          • Uygulama içinde girilen ad bilgisi{"\n"}
+          • Regl döngüsü ile ilgili tarih ve ayar bilgileri{"\n"}
+          • Bildirim tercihleri{"\n"}
+          • Su sayacı ve benzeri kullanım verileri
         </Text>
 
-        <Text style={styles.subtitle}>Veriler nerede tutulur?</Text>
-        <Text style={styles.paragraph}>
-          Bu veriler yalnızca cihazınızda saklanır. Şu anda WellShe; kendi
-          sunucularına, üçüncü parti bir backend&apos;e veya analitik
-          sağlayıcısına veri göndermez.
+        <Text style={styles.subtitle}>
+          Hangi veriler üçüncü taraf servislerle işlenebilir?
         </Text>
 
-        <Text style={styles.subtitle}>Verilerin işlenme amacı</Text>
         <Text style={styles.paragraph}>
-          Verileriniz yalnızca uygulama deneyiminizi kişiselleştirmek için
-          kullanılır. Örneğin:
-          {"\n"}• Adınız, uygulama içi selamlama ve profil ekranı için
-          kullanılır.{"\n"}• Regl döngüsü verileriniz, faz bilgilendirmeleri ve
-          tahmini sonraki regl tarihinin hesaplanması için kullanılır.
+          Reklam (Google AdMob):{"\n"}
+          • Reklam gösterim ve tıklama bilgileri{"\n"}
+          • Google Reklam Kimliği (AD_ID) ve cihaz tanımlayıcıları{"\n\n"}
+          Hata ve çökme raporları (Sentry):{"\n"}
+          • Uygulama hataları, çökme kayıtları ve teknik tanılama verileri
         </Text>
 
-        <Text style={styles.subtitle}>Verilerin paylaşımı</Text>
+        <Text style={styles.subtitle}>Veriler neden işlenir?</Text>
         <Text style={styles.paragraph}>
-          Verileriniz üçüncü kişilerle paylaşılmaz, satılmaz ve reklam
-          amaçlı kullanılmaz. Verileriniz sadece cihazınızda kalır ve yalnızca
-          sizin erişiminizdedir.
+          • Reklam göstermek ve reklam performansını ölçmek{"\n"}
+          • Uygulama hatalarını tespit edip gidermek{"\n"}
+          • Uygulama performansını ve stabilitesini artırmak
+        </Text>
+
+        <Text style={styles.subtitle}>Veriler kimlerle paylaşılır?</Text>
+        <Text style={styles.paragraph}>
+          Anonim teknik veriler yalnızca aşağıdaki servislerle paylaşılır:{"\n"}
+          • Google AdMob{"\n"}
+          • Sentry
         </Text>
 
         <Text style={styles.subtitle}>Verilerin silinmesi</Text>
         <Text style={styles.paragraph}>
-          Uygulamayı cihazınızdan kaldırdığınızda WellShe tarafından
-          saklanan tüm yerel veriler de silinir. İleride ek bir &quot;verileri
-          sıfırla&quot; fonksiyonu eklendiğinde uygulama içinden de tüm
-          verilerinizi tek dokunuşla silebileceksiniz.
+          Uygulamayı cihazınızdan kaldırdığınızda cihazda saklanan yerel veriler
+          silinir. Üçüncü taraf servislerde tutulan anonim teknik kayıtlar ilgili
+          servis sağlayıcıların saklama politikalarına tabidir.
         </Text>
 
-        <Text style={styles.subtitle}>KVKK kapsamında haklarınız</Text>
+        <Text style={styles.subtitle}>KVKK kapsamındaki haklarınız</Text>
         <Text style={styles.paragraph}>
-          Türkiye Cumhuriyeti Kişisel Verilerin Korunması Kanunu (KVKK)
-          kapsamında; kişisel verilerinizin işlenip işlenmediğini öğrenme,
-          yanlış veya eksik işlendiğini düşünüyorsanız düzeltilmesini talep
-          etme ve gerekli hâllerde verilerinizin silinmesini talep etme hakkına
-          sahipsiniz. WellShe mevcut sürümünde verilerinizi yalnızca cihazınızda
-          tuttuğundan bu haklarınızı kullanmanın en pratik yolu uygulamayı
-          kaldırmak veya ileride eklenmesi durumunda &quot;verileri sıfırla&quot;
-          özelliğini kullanmaktır.
+          KVKK kapsamında verilerinizin işlenip işlenmediğini öğrenme ve gerekli
+          hâllerde silinmesini talep etme haklarına sahipsiniz.
         </Text>
 
-        <Text style={styles.subtitle}>Gelecekteki güncellemeler</Text>
+        <Text style={styles.subtitle}>İletişim</Text>
         <Text style={styles.paragraph}>
-          İleride uygulamaya sunucu taraflı özellikler (bulut senkronizasyonu,
-          üyelik sistemi, analitik vb.) eklenmesi durumunda bu gizlilik
-          politikası güncellenecek ve sizden açıkça onay alınacaktır.
+          wellshee@gmail.com
         </Text>
 
         <View style={styles.noteBox}>
           <Text style={styles.noteText}>
-            Özetle: WellShe seni izleyen değil, seni destekleyen bir yardımcı
-            olarak tasarlandı. Verilerin yalnızca senin cihazında ve senin
-            kontrolündedir. 🌸
+            Özetle: WellShe sizi izlemek için değil, sizi desteklemek için
+            tasarlanmıştır. 🌸
           </Text>
         </View>
+
+        <Text style={styles.paragraph}>
+          Son güncelleme: 10 Ocak 2026
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );

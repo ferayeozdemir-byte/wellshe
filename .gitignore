@@ -42,4 +42,9 @@ app-example
 /ios
 /android
 
+# Sentry secrets
+android/sentry.properties
+ios/sentry.properties
+sentry.properties
+.env
 .env.local

@@ -1060,9 +1060,9 @@ export default function PeriodScreen() {
             </Pressable>
 
             <Text style={styles.helperText}>
-              Son regl başlangıcını veya döngü süreni değiştirdiğinde uygulama
-              bildirimleri otomatik olarak günceller. İstersen yukarıdaki
-              butondan elle de yeniden ayarlayabilirsin.
+              Son regl başlangıcını veya döngü süreni değiştirdiğinde uygulama,
+              bildirimleri otomatik olarak günceller. İstersen döngü bilgilerini yukarıdaki
+              butondan manuel olarak da ayarlayabilirsin.
             </Text>
           </View>
         </ScrollView>

@@ -12,9 +12,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#fdf1e6"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
@@ -31,9 +29,8 @@
     "android": {
       "package": "com.feraye.wellshe",
       "versionCode": 7,
-      "permissions": [
-        "com.google.android.gms.permission.AD_ID"
-      ],
+      "permissions": ["com.google.android.gms.permission.AD_ID"],
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo/wellshe_icon_1024.png",
         "backgroundColor": "#ffffff"
@@ -60,7 +57,8 @@
           "project": "react-native",
           "organization": "wellshe"
         }
-      ]
+      ],
+      "@react-native-firebase/app"
     ],
     "extra": {
       "eas": {
