@@ -7,49 +7,51 @@
     "orientation": "portrait",
     "icon": "./assets/images/logo/wellshe_icon_1024.png",
     "userInterfaceStyle": "light",
+
     "splash": {
       "image": "./assets/images/splash_big.png",
       "resizeMode": "contain",
       "backgroundColor": "#fdf1e6"
     },
+
     "assetBundlePatterns": ["**/*"],
+
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0,
       "url": "https://u.expo.dev/4875fac3-fcb7-478f-be18-25febe55c294"
     },
+
     "runtimeVersion": {
       "policy": "appVersion"
     },
+
     "ios": {
       "bundleIdentifier": "com.feraye.wellshe",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "config": {
+        "googleMobileAdsAppId": "ca-app-pub-3940256099942544~1458002511"
+      }
     },
+
     "android": {
       "package": "com.feraye.wellshe",
-      "versionCode": 7,
+      "versionCode": 20,
       "permissions": ["com.google.android.gms.permission.AD_ID"],
-      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo/wellshe_icon_1024.png",
         "backgroundColor": "#ffffff"
+      },
+      "config": {
+        "googleMobileAdsAppId": "ca-app-pub-9133000462142645~5704575558"
       }
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
+
     "plugins": [
       "./plugins/withAndroidQueries",
       "expo-secure-store",
       "expo-notifications",
-      [
-        "react-native-google-mobile-ads",
-        {
-          "androidAppId": "ca-app-pub-9133000462142645~5704575558",
-          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
-        }
-      ],
       [
         "@sentry/react-native/expo",
         {
@@ -57,14 +59,15 @@
           "project": "react-native",
           "organization": "wellshe"
         }
-      ],
-      "@react-native-firebase/app"
+      ]
     ],
+
     "extra": {
       "eas": {
         "projectId": "4875fac3-fcb7-478f-be18-25febe55c294"
       }
     },
+
     "owner": "wellshe"
   }
 }
