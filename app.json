@@ -63,6 +63,11 @@
   ]
 ],
 
+"react-native-google-mobile-ads": {
+  "android_app_id": "ca-app-pub-9133000462142645~5704575558",
+  "ios_app_id": "ca-app-pub-3940256099942544~1458002511"
+},
+
     "extra": {
       "eas": {
         "projectId": "4875fac3-fcb7-478f-be18-25febe55c294"
