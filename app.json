@@ -1,4 +1,4 @@
-{
+﻿{
   "expo": {
     "name": "WellShe",
     "scheme": "wellshe",
@@ -20,6 +20,7 @@
       "url": "https://u.expo.dev/4875fac3-fcb7-478f-be18-25febe55c294"
     },
     "runtimeVersion": "1.0.3",
+    "newArchEnabled": true,
 
     "ios": {
       "bundleIdentifier": "com.feraye.wellshe",
@@ -44,16 +45,6 @@
 
     "plugins": [
       "./plugins/withAndroidQueries",
-
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "newArchEnabled": false
-          }
-        }
-      ],
-
       "expo-secure-store",
       "expo-notifications",
       [
