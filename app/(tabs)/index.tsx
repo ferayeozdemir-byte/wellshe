@@ -2,6 +2,7 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
+import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
@@ -35,6 +36,11 @@ import { fetchLatestWeekly } from "../../lib/weeklyRemote";
 import { CATEGORY_ICONS, type CategoryKey } from "../_ui/categoryIcons";
 import { WEEKLY_ICONS } from "../_ui/weeklyIcons";
 import SponsorSplash from "../components/SponsorSplash";
+
+console.log("runtimeVersion", Updates.runtimeVersion);
+console.log("updateId", Updates.updateId);
+console.log("channel", Updates.channel);
+console.log("appVersion", Constants.expoConfig?.version);
 
 const FAVORITES_KEY = "favorite_articles";
 
