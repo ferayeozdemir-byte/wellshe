@@ -44,6 +44,16 @@
 
     "plugins": [
       "./plugins/withAndroidQueries",
+
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "newArchEnabled": false
+          }
+        }
+      ],
+
       "expo-secure-store",
       "expo-notifications",
       [
