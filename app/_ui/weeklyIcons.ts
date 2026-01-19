@@ -6,3 +6,5 @@ export const WEEKLY_ICONS = {
 } as const;
 
 export type WeeklyIconKey = keyof typeof WEEKLY_ICONS;
+
+export default {};

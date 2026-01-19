@@ -31,7 +31,13 @@ type FoodItem = {
   createdAt: number;
 };
 
-const EDGE_FN_NAME = "smart-endpoint"; // ✅ sen tarayıcıda bunu açtığın için burada da bunu çağırıyoruz
+const EDGE_FN_NAME = "smart-endpoint";
+
+// ✅ Edge test sadece kontrol amaçlıydı; üretimde gereksizse kapalı kalsın
+const ENABLE_EDGE_TEST = false;
+
+// ✅ Hesapla ayarlarını kalıcı yapmak için tek bir storage key
+const CALC_SETTINGS_KEY = "wellshe_calorie_calc_settings_v1";
 
 const activityFactor: Record<Activity, number> = {
   sedentary: 1.2,
@@ -69,14 +75,11 @@ const QUICK_FOODS: { name: string; kcalPer100g: number; unit?: "g" | "ml" }[] = 
   { name: "Muz", kcalPer100g: 89 },
   { name: "Elma", kcalPer100g: 52 },
   { name: "Badem", kcalPer100g: 579 },
-
   { name: "Sütlü çikolata", kcalPer100g: 535 },
   { name: "Bitter çikolata", kcalPer100g: 550 },
   { name: "Zeytin", kcalPer100g: 115 },
   { name: "Bir dilim pasta", kcalPer100g: 350 },
   { name: "Cips", kcalPer100g: 540 },
-
-  // ⭐️ Burada özel olarak unit'i ml yapıyoruz
   { name: "Kola", kcalPer100g: 42, unit: "ml" },
 ];
 
@@ -98,6 +101,7 @@ export default function CalorieScreen() {
   const [kcalDirectText, setKcalDirectText] = useState("");
   const [items, setItems] = useState<FoodItem[]>([]);
   const [gramUnit, setGramUnit] = useState<"g" | "ml">("g");
+  const [calcHydrated, setCalcHydrated] = useState(false);
 
   const computed = useMemo(() => {
     const a = Number(age);
@@ -144,26 +148,58 @@ export default function CalorieScreen() {
     return computed.recommended - totalKcal;
   }, [computed?.recommended, totalKcal]);
 
-  // ✅ İlk açılış: bugünün kayıtlarını yükle + edge test
+  // ✅ İlk açılış: bugünün kayıtlarını + hesap ayarlarını yükle
   useEffect(() => {
     const load = async () => {
       try {
+        // 1) Bugünün yediklerini yükle
         const key = storageKeyForToday();
         const raw = await AsyncStorage.getItem(key);
-        if (!raw) {
+        if (raw) {
+          const parsed: FoodItem[] = JSON.parse(raw);
+          setItems(Array.isArray(parsed) ? parsed : []);
+        } else {
           setItems([]);
-          return;
         }
-        const parsed: FoodItem[] = JSON.parse(raw);
-        setItems(Array.isArray(parsed) ? parsed : []);
+
+        // 2) Hesapla ayarlarını yükle
+        const calcRaw = await AsyncStorage.getItem(CALC_SETTINGS_KEY);
+        console.log("[CALC] loaded raw", calcRaw);
+        if (calcRaw) {
+          const c = JSON.parse(calcRaw);
+
+          if (c?.mode === "calc" || c?.mode === "track") setMode(c.mode);
+
+          if (c?.sex === "female" || c?.sex === "male") setSex(c.sex);
+
+          if (typeof c?.age === "string") setAge(c.age);
+          if (typeof c?.heightCm === "string") setHeightCm(c.heightCm);
+          if (typeof c?.weightKg === "string") setWeightKg(c.weightKg);
+
+          if (
+            c?.activity === "sedentary" ||
+            c?.activity === "light" ||
+            c?.activity === "moderate" ||
+            c?.activity === "active" ||
+            c?.activity === "very_active"
+          ) {
+            setActivity(c.activity);
+          }
+
+          if (c?.goal === "maintain" || c?.goal === "lose" || c?.goal === "gain") {
+            setGoal(c.goal);
+          }
+        }
       } catch {
-        setItems([]);
-      }
+        // sessiz geç
+      } finally {
+    setCalcHydrated(true);
+    }
     };
 
     const testEdge = async () => {
+      if (!ENABLE_EDGE_TEST) return;
       try {
-        // ✅ Edge function POST + header ile çağrılır; tarayıcıdan açınca 401 normal
         const r = await callEdgeFunction<any>(EDGE_FN_NAME, { ping: true });
         console.log("EDGE TEST:", r);
       } catch (e) {
@@ -175,7 +211,7 @@ export default function CalorieScreen() {
     testEdge();
   }, []);
 
-  // ✅ Her değişiklikte kaydet
+  // ✅ Her değişiklikte “bugünün yediklerini” kaydet
   useEffect(() => {
     const save = async () => {
       try {
@@ -187,6 +223,26 @@ export default function CalorieScreen() {
     };
     save();
   }, [items]);
+
+  // ✅ Her değişiklikte “Hesapla” ayarlarını kaydet (kalıcı olsun)
+useEffect(() => {
+  if (!calcHydrated) return;
+
+  const saveCalc = async () => {
+    try {
+      const payload = { mode, sex, age, heightCm, weightKg, activity, goal };
+      const json = JSON.stringify(payload);
+      await AsyncStorage.setItem(CALC_SETTINGS_KEY, json);
+
+      const check = await AsyncStorage.getItem(CALC_SETTINGS_KEY);
+      console.log("[CALC] saved?", check);
+    } catch (e) {
+      console.log("[CALC] save error", e);
+    }
+  };
+
+  saveCalc();
+}, [calcHydrated, mode, sex, age, heightCm, weightKg, activity, goal]);
 
   const addFood = () => {
     const name = foodName.trim();
@@ -250,7 +306,7 @@ export default function CalorieScreen() {
   const addQuickFood = (q: { name: string; kcalPer100g: number; unit?: "g" | "ml" }) => {
     setFoodName(q.name);
     setKcalPer100gText(String(q.kcalPer100g));
-    setGramUnit(q.unit ?? "g"); // ⭐️ burada ayarlıyoruz
+    setGramUnit(q.unit ?? "g");
     if (!gramsText.trim()) setGramsText("100");
     setKcalDirectText("");
   };
@@ -274,10 +330,8 @@ export default function CalorieScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        {/* 🔹 İçeriği ve banner'ı saran container */}
         <View style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={styles.container}>
-            {/* Üst başlık */}
             <View style={styles.headerCard}>
               <Text style={styles.title}>Kalori</Text>
               <Text style={styles.subtitle}>
@@ -285,22 +339,13 @@ export default function CalorieScreen() {
               </Text>
 
               <View style={styles.segmentRow}>
-                <SegmentButton
-                  text="Takip"
-                  active={mode === "track"}
-                  onPress={() => setMode("track")}
-                />
-                <SegmentButton
-                  text="Hesapla"
-                  active={mode === "calc"}
-                  onPress={() => setMode("calc")}
-                />
+                <SegmentButton text="Takip" active={mode === "track"} onPress={() => setMode("track")} />
+                <SegmentButton text="Hesapla" active={mode === "calc"} onPress={() => setMode("calc")} />
               </View>
             </View>
 
             {mode === "track" ? (
               <>
-                {/* Özet kartı */}
                 <View style={styles.card}>
                   <View style={styles.summaryRow}>
                     <View style={{ flex: 1 }}>
@@ -315,10 +360,7 @@ export default function CalorieScreen() {
 
                   <View style={styles.summaryNumbersRow}>
                     <SummaryBox label="Aldığınız" value={`${totalKcal} kcal`} />
-                    <SummaryBox
-                      label="Hedef"
-                      value={`${computed?.recommended ?? "-"} kcal`}
-                    />
+                    <SummaryBox label="Hedef" value={`${computed?.recommended ?? "-"} kcal`} />
                     <SummaryBox
                       label="Kalan"
                       value={
@@ -339,14 +381,11 @@ export default function CalorieScreen() {
                   ) : null}
                 </View>
 
-                {/* ✅ Bugünün listesi (ÜSTE ALINDI) */}
                 <View style={styles.card}>
                   <Text style={styles.sectionTitle}>Bugün Yediklerin</Text>
 
                   {items.length === 0 ? (
-                    <Text style={styles.muted}>
-                      Henüz bir şey eklemedin. İlk besinini ekle 🌸
-                    </Text>
+                    <Text style={styles.muted}>Henüz bir şey eklemedin. İlk besinini ekle 🌸</Text>
                   ) : (
                     <View style={{ gap: 10, marginTop: 10 }}>
                       {items.map((it) => (
@@ -374,7 +413,6 @@ export default function CalorieScreen() {
                   )}
                 </View>
 
-                {/* Besin ekleme */}
                 <View style={styles.card}>
                   <Text style={styles.sectionTitle}>Besin Ekle</Text>
 
@@ -389,9 +427,7 @@ export default function CalorieScreen() {
 
                   <View style={styles.twoColRow}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.label}>
-                        {gramUnit === "ml" ? "Miktar (ml)" : "Gram"}
-                      </Text>
+                      <Text style={styles.label}>{gramUnit === "ml" ? "Miktar (ml)" : "Gram"}</Text>
                       <TextInput
                         style={styles.input}
                         placeholder="örn. 150"
@@ -436,24 +472,15 @@ export default function CalorieScreen() {
                   </Text>
                 </View>
 
-                {/* Hızlı seçim */}
                 <View style={styles.card}>
                   <Text style={styles.sectionTitle}>Hızlı Ekleme</Text>
-                  <Text style={styles.muted}>
-                    Birini seçip gramı ayarla, sonra “Ekle” de.
-                  </Text>
+                  <Text style={styles.muted}>Birini seçip gramı ayarla, sonra “Ekle” de.</Text>
 
                   <View style={styles.quickWrap}>
                     {QUICK_FOODS.map((q) => (
-                      <Pressable
-                        key={q.name}
-                        onPress={() => addQuickFood(q)}
-                        style={styles.quickChip}
-                      >
+                      <Pressable key={q.name} onPress={() => addQuickFood(q)} style={styles.quickChip}>
                         <Text style={styles.quickChipText}>{q.name}</Text>
-                        <Text style={styles.quickChipSub}>
-                          {q.kcalPer100g} /100g
-                        </Text>
+                        <Text style={styles.quickChipSub}>{q.kcalPer100g} /100g</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -461,22 +488,13 @@ export default function CalorieScreen() {
               </>
             ) : (
               <>
-                {/* Hesap ekranı */}
                 <View style={styles.card}>
                   <Text style={styles.sectionTitle}>Günlük hedefini hesapla</Text>
 
                   <Text style={styles.label}>Cinsiyet</Text>
                   <View style={styles.segmentRow}>
-                    <SegmentButton
-                      text="Kadın"
-                      active={sex === "female"}
-                      onPress={() => setSex("female")}
-                    />
-                    <SegmentButton
-                      text="Erkek"
-                      active={sex === "male"}
-                      onPress={() => setSex("male")}
-                    />
+                    <SegmentButton text="Kadın" active={sex === "female"} onPress={() => setSex("female")} />
+                    <SegmentButton text="Erkek" active={sex === "male"} onPress={() => setSex("male")} />
                   </View>
 
                   <View style={styles.twoColRow}>
@@ -517,50 +535,18 @@ export default function CalorieScreen() {
 
                   <Text style={styles.label}>Aktivite</Text>
                   <View style={styles.wrap}>
-                    <Chip
-                      text="Hareketsiz"
-                      active={activity === "sedentary"}
-                      onPress={() => setActivity("sedentary")}
-                    />
-                    <Chip
-                      text="Hafif"
-                      active={activity === "light"}
-                      onPress={() => setActivity("light")}
-                    />
-                    <Chip
-                      text="Orta"
-                      active={activity === "moderate"}
-                      onPress={() => setActivity("moderate")}
-                    />
-                    <Chip
-                      text="Aktif"
-                      active={activity === "active"}
-                      onPress={() => setActivity("active")}
-                    />
-                    <Chip
-                      text="Çok aktif"
-                      active={activity === "very_active"}
-                      onPress={() => setActivity("very_active")}
-                    />
+                    <Chip text="Hareketsiz" active={activity === "sedentary"} onPress={() => setActivity("sedentary")} />
+                    <Chip text="Hafif" active={activity === "light"} onPress={() => setActivity("light")} />
+                    <Chip text="Orta" active={activity === "moderate"} onPress={() => setActivity("moderate")} />
+                    <Chip text="Aktif" active={activity === "active"} onPress={() => setActivity("active")} />
+                    <Chip text="Çok aktif" active={activity === "very_active"} onPress={() => setActivity("very_active")} />
                   </View>
 
                   <Text style={styles.label}>Hedef</Text>
                   <View style={styles.segmentRow}>
-                    <SegmentButton
-                      text="Koruma"
-                      active={goal === "maintain"}
-                      onPress={() => setGoal("maintain")}
-                    />
-                    <SegmentButton
-                      text="Kilo verme"
-                      active={goal === "lose"}
-                      onPress={() => setGoal("lose")}
-                    />
-                    <SegmentButton
-                      text="Kilo alma"
-                      active={goal === "gain"}
-                      onPress={() => setGoal("gain")}
-                    />
+                    <SegmentButton text="Koruma" active={goal === "maintain"} onPress={() => setGoal("maintain")} />
+                    <SegmentButton text="Kilo verme" active={goal === "lose"} onPress={() => setGoal("lose")} />
+                    <SegmentButton text="Kilo alma" active={goal === "gain"} onPress={() => setGoal("gain")} />
                   </View>
                 </View>
 
@@ -573,32 +559,16 @@ export default function CalorieScreen() {
                     </Text>
                   ) : (
                     <>
-                      <ResultRow
-                        label="BMR (bazal metabolizma)"
-                        value={`${computed.bmr} kcal`}
-                      />
-                      <ResultRow
-                        label="TDEE (günlük toplam ihtiyaç)"
-                        value={`${computed.tdee} kcal`}
-                      />
+                      <ResultRow label="BMR (bazal metabolizma)" value={`${computed.bmr} kcal`} />
+                      <ResultRow label="TDEE (günlük toplam ihtiyaç)" value={`${computed.tdee} kcal`} />
                       <View style={styles.divider} />
-                      <ResultRow
-                        label="Önerilen günlük hedef"
-                        value={`${computed.recommended} kcal`}
-                        bold
-                      />
+                      <ResultRow label="Önerilen günlük hedef" value={`${computed.recommended} kcal`} bold />
                       <Text style={styles.smallMuted}>
-                        Bu hesaplama genel bir tahmindir. Sağlık durumunuza göre
-                        profesyonel görüş daha doğru olur.
+                        Bu hesaplama genel bir tahmindir. Sağlık durumunuza göre profesyonel görüş daha doğru olur.
                       </Text>
 
-                      <Pressable
-                        style={styles.primaryBtn}
-                        onPress={() => setMode("track")}
-                      >
-                        <Text style={styles.primaryBtnText}>
-                          Kaydet ve Takibe Geç
-                        </Text>
+                      <Pressable style={styles.primaryBtn} onPress={() => setMode("track")}>
+                        <Text style={styles.primaryBtnText}>Kaydet ve Takibe Geç</Text>
                       </Pressable>
                     </>
                   )}
@@ -607,7 +577,6 @@ export default function CalorieScreen() {
             )}
           </ScrollView>
 
-          {/* 🔻 Sayfanın en altında reklam banner’ı */}
           <View style={styles.adContainer}>
             <AdBanner />
           </View>
@@ -627,13 +596,8 @@ function SegmentButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.segmentBtn, active && styles.segmentBtnActive]}
-    >
-      <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
-        {text}
-      </Text>
+    <Pressable onPress={onPress} style={[styles.segmentBtn, active && styles.segmentBtnActive]}>
+      <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{text}</Text>
     </Pressable>
   );
 }
@@ -648,13 +612,8 @@ function Chip({
   onPress: () => void;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.chip, active && styles.chipActive]}
-    >
-      <Text style={[styles.chipText, active && styles.chipTextActive]}>
-        {text}
-      </Text>
+    <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
+      <Text style={[styles.chipText, active && styles.chipTextActive]}>{text}</Text>
     </Pressable>
   );
 }
@@ -671,11 +630,7 @@ function SummaryBox({
   return (
     <View style={[styles.summaryBox, emphasize && styles.summaryBoxWarn]}>
       <Text style={styles.summaryLabel}>{label}</Text>
-      <Text
-        style={[styles.summaryValue, emphasize && { color: "#8B1E2D" }]}
-      >
-        {value}
-      </Text>
+      <Text style={[styles.summaryValue, emphasize && { color: "#8B1E2D" }]}>{value}</Text>
     </View>
   );
 }
@@ -691,16 +646,8 @@ function ResultRow({
 }) {
   return (
     <View style={styles.resultRow}>
-      <Text
-        style={[styles.resultLabel, bold && { fontWeight: "800" }]}
-      >
-        {label}
-      </Text>
-      <Text
-        style={[styles.resultValue, bold && { fontWeight: "900" }]}
-      >
-        {value}
-      </Text>
+      <Text style={[styles.resultLabel, bold && { fontWeight: "800" }]}>{label}</Text>
+      <Text style={[styles.resultValue, bold && { fontWeight: "900" }]}>{value}</Text>
     </View>
   );
 }
@@ -899,7 +846,6 @@ const styles = StyleSheet.create({
     marginVertical: 8,
   },
 
-  // 🔻 Banner alanı
   adContainer: {
     paddingHorizontal: 8,
     paddingBottom: 8,

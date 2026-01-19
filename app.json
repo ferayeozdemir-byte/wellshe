@@ -19,9 +19,8 @@
       "fallbackToCacheTimeout": 0,
       "url": "https://u.expo.dev/4875fac3-fcb7-478f-be18-25febe55c294"
     },
-    "runtimeVersion": "1.0.3",
+    "runtimeVersion": { "policy": "appVersion" },
     "newArchEnabled": true,
-
     "ios": {
       "bundleIdentifier": "com.feraye.wellshe",
       "supportsTablet": true,
@@ -29,7 +28,6 @@
         "googleMobileAdsAppId": "ca-app-pub-3940256099942544~1458002511"
       }
     },
-
     "android": {
       "package": "com.feraye.wellshe",
       "versionCode": 21,
@@ -44,7 +42,7 @@
     },
 
     "plugins": [
-      "./plugins/withAndroidQueries",
+      "./plugins/withAdMobManifestFix",
       "expo-secure-store",
       "expo-notifications",
       [
@@ -56,9 +54,10 @@
         }
       ]
     ],
-
     "extra": {
-      "eas": { "projectId": "4875fac3-fcb7-478f-be18-25febe55c294" }
+      "eas": {
+        "projectId": "4875fac3-fcb7-478f-be18-25febe55c294"
+      }
     },
     "owner": "wellshe"
   }

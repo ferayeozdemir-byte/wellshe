@@ -12,3 +12,5 @@ export const CATEGORY_ICONS = {
 } as const;
 
 export type CategoryKey = keyof typeof CATEGORY_ICONS;
+
+export default {};

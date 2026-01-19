@@ -20,12 +20,12 @@ import AdBanner from "../../components/AdBanner";
 type DateObject = { dateString: string };
 
 type PeriodLog = {
-  startDate: string; // İçeride ISO format (YYYY-MM-DD) tutuluyor
+  startDate: string; // ISO (YYYY-MM-DD)
 };
 
 type PeriodSettings = {
-  averageCycleLength: number; // ortalama döngü süresi (gün)
-  periodLength: number; // regl süresi (gün)
+  averageCycleLength: number;
+  periodLength: number;
 };
 
 type CycleNotificationIds = {
@@ -67,7 +67,13 @@ const PERIOD_LOGS_KEY = "wellshe_period_logs";
 const CYCLE_NOTIFICATION_IDS_KEY = "wellshe_cycle_notification_ids";
 const MOOD_DATA_KEY = "wellshe_mood_data";
 
-// Yardımcı: Date -> "YYYY-MM-DD" (iç format)
+// ✅ Minimal ek: default ayarları tek yerden yönetelim
+const DEFAULT_SETTINGS: PeriodSettings = {
+  averageCycleLength: 28,
+  periodLength: 5,
+};
+
+// Yardımcı: Date -> "YYYY-MM-DD"
 function formatDate(date: Date): string {
   const y = date.getFullYear();
   const m = `${date.getMonth() + 1}`.padStart(2, "0");
@@ -75,15 +81,13 @@ function formatDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-// ISO -> "GG.AA.YYYY" (kullanıcıya gösterilen format)
+// ISO -> "GG.AA.YYYY"
 function formatDateTRFromISO(iso: string): string {
   const [y, m, d] = iso.split("-");
   if (!y || !m || !d) return iso;
   return `${d}.${m}.${y}`;
 }
 
-// "GG.AA.YYYY" -> ISO ("YYYY-MM-DD")
-// Kullanıcı input’unu iç formata çeviriyoruz
 function parseTRDateToISO(tr: string): string | null {
   const match = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(tr.trim());
   if (!match) return null;
@@ -96,7 +100,6 @@ function parseTRDateToISO(tr: string): string | null {
   const date = new Date(y, m - 1, d);
   if (Number.isNaN(date.getTime())) return null;
 
-  // Geçersiz tarihleri ele (32.01.2025 gibi)
   if (
     date.getFullYear() !== y ||
     date.getMonth() !== m - 1 ||
@@ -108,7 +111,6 @@ function parseTRDateToISO(tr: string): string | null {
   return formatDate(date);
 }
 
-// ISO aralık -> "19.12 - 23.12 2025" (yıl 1 kez)
 function formatRangeTR(startIso: string, endIso: string): string {
   const [sy, sm, sd] = startIso.split("-");
   const [ey, em, ed] = endIso.split("-");
@@ -121,7 +123,6 @@ function formatRangeTR(startIso: string, endIso: string): string {
   return `${startShort}.${sy} - ${endShort}.${ey}`;
 }
 
-// Tarih formatı kontrolü (ISO: YYYY-MM-DD)
 function isValidISODate(str: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
   const date = new Date(str);
@@ -129,7 +130,6 @@ function isValidISODate(str: string): boolean {
   return formatDate(date) === str;
 }
 
-// ✅ Gelecek tarih kontrolü (ISO)
 function isFutureISODate(iso: string): boolean {
   if (!isValidISODate(iso)) return false;
 
@@ -142,7 +142,6 @@ function isFutureISODate(iso: string): boolean {
   return picked.getTime() > today.getTime();
 }
 
-// Tahmini sonraki regl başlangıç tarihi (ISO)
 function getNextPeriodStart(
   logs: PeriodLog[],
   settings: PeriodSettings | null
@@ -154,7 +153,6 @@ function getNextPeriodStart(
   return formatDate(lastDate);
 }
 
-// Ovülasyon + verimli gün aralığı (hepsi ISO iç formatta)
 function getOvulationInfo(
   logs: PeriodLog[],
   settings: PeriodSettings | null
@@ -182,7 +180,6 @@ function getOvulationInfo(
   };
 }
 
-// Takvimde gösterilecek işaretli günler (ISO key'ler)
 function getMarkedDates(
   logs: PeriodLog[],
   settings: PeriodSettings | null
@@ -192,7 +189,6 @@ function getMarkedDates(
 
   const periodLength = settings.periodLength;
 
-  // 1) Geçmiş regl günleri (kırmızı/pembe)
   logs.forEach((log) => {
     const start = new Date(log.startDate);
     for (let i = 0; i < periodLength; i++) {
@@ -207,7 +203,6 @@ function getMarkedDates(
     }
   });
 
-  // 2) Tahmini sonraki regl (mor)
   const next = getNextPeriodStart(logs, settings);
   if (next) {
     const nextStart = new Date(next);
@@ -221,7 +216,6 @@ function getMarkedDates(
     }
   }
 
-  // 3) Ovülasyon + verimli günler
   const ovInfo = getOvulationInfo(logs, settings);
   if (ovInfo.ovulationDate && ovInfo.windowStart && ovInfo.windowEnd) {
     const ws = new Date(ovInfo.windowStart);
@@ -249,7 +243,6 @@ function getMarkedDates(
   return marked;
 }
 
-// Eski döngü bildirimlerini iptal et
 async function clearCycleNotifications() {
   try {
     const json = await AsyncStorage.getItem(CYCLE_NOTIFICATION_IDS_KEY);
@@ -277,7 +270,6 @@ async function clearCycleNotifications() {
   }
 }
 
-// Android kanalını sizin mevcut yapınızla uyumlu tuttum: "reminders"
 async function ensureAndroidChannel() {
   if (Platform.OS !== "android") return;
   try {
@@ -310,7 +302,6 @@ const SYMPTOMS = [
   "Tatlı isteği",
 ];
 
-// Döngü fazı hesaplama
 function getCyclePhaseInfo(
   logs: PeriodLog[],
   settings: PeriodSettings | null
@@ -402,7 +393,6 @@ function getCyclePhaseInfo(
   };
 }
 
-// 🔹 Regl ekranı için banner komponenti (article/calorie mimarisiyle aynı mantık)
 function PeriodBannerAd() {
   return (
     <View style={styles.adContainer}>
@@ -425,6 +415,37 @@ export default function PeriodScreen() {
   const todayMood = moodData[todayKey]?.mood;
   const todaySymptoms = moodData[todayKey]?.symptoms ?? [];
 
+  // ✅ Minimal ek: settings storage garanti eden helper
+  const ensureSettingsStored = async (): Promise<PeriodSettings> => {
+    // 1) state varsa onu kullan
+    if (settings) return settings;
+
+    // 2) storage'dan dene
+    try {
+      const existing = await AsyncStorage.getItem(PERIOD_SETTINGS_KEY);
+      if (existing) {
+        const parsed: PeriodSettings = JSON.parse(existing);
+        // state’i de toparla ki UI tutarlı kalsın
+        setSettings(parsed);
+        setInputAverageCycle(String(parsed.averageCycleLength));
+        setInputPeriodLength(String(parsed.periodLength));
+        return parsed;
+      }
+    } catch {
+      // ignore
+    }
+
+    // 3) yoksa default’u hem state’e hem storage’a yaz
+    setSettings(DEFAULT_SETTINGS);
+    setInputAverageCycle(String(DEFAULT_SETTINGS.averageCycleLength));
+    setInputPeriodLength(String(DEFAULT_SETTINGS.periodLength));
+    await AsyncStorage.setItem(
+      PERIOD_SETTINGS_KEY,
+      JSON.stringify(DEFAULT_SETTINGS)
+    );
+    return DEFAULT_SETTINGS;
+  };
+
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -440,20 +461,20 @@ export default function PeriodScreen() {
           setInputAverageCycle(String(parsed.averageCycleLength));
           setInputPeriodLength(String(parsed.periodLength));
         } else {
-          const defaultSettings: PeriodSettings = {
-            averageCycleLength: 28,
-            periodLength: 5,
-          };
-          setSettings(defaultSettings);
-          setInputAverageCycle("28");
-          setInputPeriodLength("5");
+          setSettings(DEFAULT_SETTINGS);
+          setInputAverageCycle(String(DEFAULT_SETTINGS.averageCycleLength));
+          setInputPeriodLength(String(DEFAULT_SETTINGS.periodLength));
+          // ✅ settings key her zaman var olsun
+          await AsyncStorage.setItem(
+            PERIOD_SETTINGS_KEY,
+            JSON.stringify(DEFAULT_SETTINGS)
+          );
         }
 
         if (logsJson) {
           const parsedLogs: PeriodLog[] = JSON.parse(logsJson);
           setLogs(parsedLogs);
           if (parsedLogs.length > 0) {
-            // Input’a TR formatı göster
             setInputLastStartDate(
               formatDateTRFromISO(parsedLogs[parsedLogs.length - 1].startDate)
             );
@@ -472,6 +493,7 @@ export default function PeriodScreen() {
     };
 
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const nextPeriod = useMemo(
@@ -512,12 +534,10 @@ export default function PeriodScreen() {
     }
 
     const trimmedDate = inputLastStartDate.trim();
-
     let isoFromInput: string | null = null;
 
     if (trimmedDate !== "") {
       isoFromInput = parseTRDateToISO(trimmedDate);
-
       if (!isoFromInput) {
         Alert.alert(
           "Tarih formatı hatalı",
@@ -525,8 +545,6 @@ export default function PeriodScreen() {
         );
         return;
       }
-
-      // ✅ Gelecek tarih kaydedilemesin
       if (isFutureISODate(isoFromInput)) {
         Alert.alert(
           "Geçersiz tarih",
@@ -552,22 +570,22 @@ export default function PeriodScreen() {
       effectiveLogs = logsArr;
     }
 
-    // 🔁 Ayarlar veya son regl tarihi değiştiyse, bildirimleri yeni değerlere göre sessizce güncelle
     await scheduleCycleNotifications(effectiveLogs, newSettings, { silent: true });
-
     Alert.alert("Kaydedildi", "Döngü ayarların güncellendi.");
   };
 
   const handleTodayStarted = async () => {
     const todayIso = formatDate(new Date());
 
+    // ✅ minimal ek: settings key garanti
+    const effSettings = await ensureSettingsStored();
+
     const newLogs: PeriodLog[] = [{ startDate: todayIso }];
     setLogs(newLogs);
     setInputLastStartDate(formatDateTRFromISO(todayIso));
     await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(newLogs));
 
-    // 🔁 Yeni döngüye göre bildirimleri otomatik güncelle (sessiz)
-    await scheduleCycleNotifications(newLogs, settings, { silent: true });
+    await scheduleCycleNotifications(newLogs, effSettings, { silent: true });
 
     Alert.alert(
       "Kaydedildi",
@@ -579,7 +597,6 @@ export default function PeriodScreen() {
     try {
       const pickedIso = day.dateString;
 
-      // ✅ Gelecek tarih seçilemesin (takvim ISO döner)
       if (isFutureISODate(pickedIso)) {
         Alert.alert(
           "Geçersiz tarih",
@@ -588,6 +605,9 @@ export default function PeriodScreen() {
         return;
       }
 
+      // ✅ minimal ek: settings key garanti
+      const effSettings = await ensureSettingsStored();
+
       setInputLastStartDate(formatDateTRFromISO(pickedIso));
 
       const newLogs: PeriodLog[] = [{ startDate: pickedIso }];
@@ -595,16 +615,13 @@ export default function PeriodScreen() {
 
       await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(newLogs));
 
-      // 🔁 Yeni tarihe göre bildirimleri otomatik güncelle (sessiz)
-      await scheduleCycleNotifications(newLogs, settings, { silent: true });
+      await scheduleCycleNotifications(newLogs, effSettings, { silent: true });
     } catch (e) {
       console.log("handleCalendarDayPress save error:", e);
       Alert.alert("Hata", "Tarih kaydedilemedi. Lütfen tekrar dene.");
     }
   };
 
-  // ✅ SDK 54 + TS uyumlu: trigger = { type: DATE, date }
-  // baseLogs & baseSettings parametreli, silent mod destekli
   const scheduleCycleNotifications = async (
     baseLogs: PeriodLog[],
     baseSettings: PeriodSettings | null,
@@ -654,11 +671,7 @@ export default function PeriodScreen() {
       let finalStatus = existing.status;
 
       if (finalStatus !== "granted") {
-        if (silent) {
-          // Otomatik modda izin istemiyoruz, sessizce vazgeç
-          return;
-        }
-
+        if (silent) return;
         const req = await Notifications.requestPermissionsAsync();
         finalStatus = req.status;
       }
@@ -678,7 +691,6 @@ export default function PeriodScreen() {
 
       const ids: CycleNotificationIds = {};
 
-      // 2 gün önce (ileri bir tarihse)
       if (beforeDate > now) {
         const beforeId = await Notifications.scheduleNotificationAsync({
           content: {
@@ -695,7 +707,6 @@ export default function PeriodScreen() {
         ids.before = beforeId;
       }
 
-      // Tahmini regl günü
       const startId = await Notifications.scheduleNotificationAsync({
         content: {
           title: "Bugün regl başlayabilir 🌙",
@@ -710,10 +721,7 @@ export default function PeriodScreen() {
       });
       ids.start = startId;
 
-      await AsyncStorage.setItem(
-        CYCLE_NOTIFICATION_IDS_KEY,
-        JSON.stringify(ids)
-      );
+      await AsyncStorage.setItem(CYCLE_NOTIFICATION_IDS_KEY, JSON.stringify(ids));
 
       if (!silent) {
         Alert.alert(
@@ -797,7 +805,6 @@ export default function PeriodScreen() {
             daha uyumlu bir ritim yakalayabilirsin.
           </Text>
 
-          {/* ✅ Bildirim butonu: döngü özetinin hemen üstünde */}
           <Pressable
             style={styles.secondaryButton}
             onPress={() =>
@@ -814,7 +821,6 @@ export default function PeriodScreen() {
             gününde hatırlatıcı alırsın.
           </Text>
 
-          {/* Döngü Özeti */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Döngü Özeti</Text>
 
@@ -869,65 +875,25 @@ export default function PeriodScreen() {
             </Text>
           </View>
 
-          {/* ✅ Takvim: döngü özetinin altına alındı */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Takvim Görünümü</Text>
             <Text style={styles.cardDescription}>
-              Son regl başlangıcını takvimden de seçebilirsin.
-              Geçmiş regl günlerin, tahmini regl dönemlerin ve verimli günlerin
-              renklerle işaretlenir.
+              Son regl başlangıcını takvimden de seçebilirsin. Geçmiş regl
+              günlerin, tahmini regl dönemlerin ve verimli günlerin renklerle
+              işaretlenir.
             </Text>
 
             <Calendar
               onDayPress={handleCalendarDayPress}
               markedDates={markedDates}
-              maxDate={todayKey} // ✅ gelecek günler seçilemez
+              maxDate={todayKey}
               theme={{
                 todayTextColor: "#B0756F",
                 arrowColor: "#B0756F",
               }}
             />
-
-            <View style={styles.legendContainer}>
-              <View style={styles.legendRow}>
-                <View
-                  style={[styles.legendColor, { backgroundColor: "#FF6B81" }]}
-                />
-                <Text style={styles.legendText}>
-                  Kırmızı alanlar: Regl olduğun günler
-                </Text>
-              </View>
-              <View style={styles.legendRow}>
-                <View
-                  style={[styles.legendColor, { backgroundColor: "#C4A1FF" }]}
-                />
-                <Text style={styles.legendText}>
-                  Mor alanlar: Tahmini bir sonraki regl döneminin günleri
-                </Text>
-              </View>
-              <View style={styles.legendRow}>
-                <View
-                  style={[styles.legendColor, { backgroundColor: "#FFE3F0" }]}
-                />
-                <Text style={styles.legendText}>
-                  Açık pembe alanlar: Tahmini verimli günlerin
-                </Text>
-              </View>
-              <View style={styles.legendRow}>
-                <View
-                  style={[
-                    styles.legendColor,
-                    { backgroundColor: "#FF9EC4", borderRadius: 999 },
-                  ]}
-                />
-                <Text style={styles.legendText}>
-                  Pembe nokta: Tahmini ovülasyon günün
-                </Text>
-              </View>
-            </View>
           </View>
 
-          {/* Bugün Regl Başladı butonu */}
           <Pressable style={styles.primaryButton} onPress={handleTodayStarted}>
             <Text style={styles.primaryButtonText}>Bugün Regl Başladı</Text>
           </Pressable>
@@ -935,7 +901,6 @@ export default function PeriodScreen() {
             Reglinin ilk gününde bu butona dokunarak döngünü güncellersin.
           </Text>
 
-          {/* Bugünkü faz */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Bugün Döngünün Fazı</Text>
             <Text style={styles.phaseTitle}>{phaseInfo.title}</Text>
@@ -943,14 +908,8 @@ export default function PeriodScreen() {
             <Text style={styles.phaseSuggestion}>{phaseInfo.suggestion}</Text>
           </View>
 
-          {/* Mod & Semptom */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Bugünkü Modun & Semptomların</Text>
-            <Text style={styles.cardDescription}>
-              Bugün nasıl hissettiğini ve bedeninde neler olduğunu kısaca
-              işaretleyebilirsin. Böylece zaman içinde döngüyle birlikte
-              modunun nasıl değiştiğini daha net görebilirsin.
-            </Text>
 
             <Text style={styles.inputLabel}>Bugün modun nasıl?</Text>
             <View style={styles.moodRow}>
@@ -1013,14 +972,8 @@ export default function PeriodScreen() {
                 );
               })}
             </View>
-
-            <Text style={styles.helperText}>
-              Modunu ve semptomlarını her gün birkaç saniyede işaretleyebilirsin.
-              Bu kayıtlar sadece senin cihazında saklanır.
-            </Text>
           </View>
 
-          {/* Ayarlar */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Döngü Ayarların</Text>
 
@@ -1041,9 +994,7 @@ export default function PeriodScreen() {
               onChangeText={setInputAverageCycle}
             />
 
-            <Text style={styles.inputLabel}>
-              Reglin ortalama kaç gün sürüyor?
-            </Text>
+            <Text style={styles.inputLabel}>Reglin ortalama kaç gün sürüyor?</Text>
             <TextInput
               style={styles.input}
               placeholder="Örn: 5"
@@ -1058,16 +1009,9 @@ export default function PeriodScreen() {
             >
               <Text style={styles.secondaryButtonText}>Ayarları Kaydet</Text>
             </Pressable>
-
-            <Text style={styles.helperText}>
-              Son regl başlangıcını veya döngü süreni değiştirdiğinde uygulama,
-              bildirimleri otomatik olarak günceller. İstersen döngü bilgilerini yukarıdaki
-              butondan manuel olarak da ayarlayabilirsin.
-            </Text>
           </View>
         </ScrollView>
 
-        {/* 🔹 Alt bant reklam (native + web-safe AdBanner) */}
         <PeriodBannerAd />
       </View>
     </>
@@ -1075,11 +1019,7 @@ export default function PeriodScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: {
-    flex: 1,
-    backgroundColor: "#FFF7F3",
-  },
-
+  page: { flex: 1, backgroundColor: "#FFF7F3" },
   content: { padding: 16, paddingBottom: 32 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingText: { color: "#4A2E2A", fontSize: 16 },
@@ -1155,11 +1095,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   secondaryButtonText: { color: "#f0ededff", fontSize: 15, fontWeight: "600" },
-
-  legendContainer: { marginTop: 12 },
-  legendRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
-  legendColor: { width: 16, height: 16, marginRight: 8, borderRadius: 4 },
-  legendText: { fontSize: 12, color: "#5A3A35", flex: 1 },
 
   moodRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
   moodChip: {

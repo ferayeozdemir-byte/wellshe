@@ -48,3 +48,5 @@ ios/sentry.properties
 sentry.properties
 .env
 .env.local
+
+app.config.js.bak
