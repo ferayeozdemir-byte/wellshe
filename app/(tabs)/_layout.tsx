@@ -24,9 +24,7 @@ export default function TabLayout() {
 
   async function checkConsent() {
     const accepted = await SecureStore.getItemAsync(CONSENT_KEY);
-    if (!accepted) {
-      setShowConsent(true);
-    }
+    if (!accepted) setShowConsent(true);
   }
 
   async function acceptConsent() {
@@ -44,17 +42,20 @@ export default function TabLayout() {
               <Text style={styles.modalTitle}>Gizlilik Bilgilendirmesi</Text>
 
               <Text style={styles.modalText}>
-                WellShe, reklam gösterebilmek ve uygulama hatalarını tespit edebilmek
-                için bazı anonim teknik verileri işler.
+                WellShe, âdet döngüsü, su takibi ve kalori hesaplama amacıyla
+                girilen yaş, boy ve kilo verilerini yalnızca cihazınızda saklar.
               </Text>
 
               <Text style={styles.modalText}>
-                Google AdMob ve Sentry servisleri kullanılmaktadır.
+                Reklam gösterebilmek ve uygulama hatalarını tespit edebilmek
+                için Google AdMob ve Sentry servisleri kullanılmaktadır.
               </Text>
 
-              <Pressable
-                onPress={() => router.push("/privacy")}
-              >
+              <Text style={styles.modalText}>
+                Devam ederek Gizlilik Politikası’nı kabul etmiş olursunuz.
+              </Text>
+
+              <Pressable onPress={() => router.push("/privacy")}>
                 <Text style={styles.linkText}>
                   Gizlilik Politikasını Görüntüle
                 </Text>
@@ -77,13 +78,7 @@ export default function TabLayout() {
         }}
       >
         <Tabs.Screen name="index" options={{ title: "Home" }} />
-
-        <Tabs.Screen
-          name="explore"
-          options={{
-            href: null,
-          }}
-        />
+        <Tabs.Screen name="explore" options={{ href: null }} />
       </Tabs>
     </>
   );

@@ -9,77 +9,116 @@ export default function PrivacyScreen() {
     <SafeAreaView style={styles.safeArea}>
       <Stack.Screen options={{ title: "Gizlilik ve KVKK" }} />
       <ScrollView contentContainerStyle={styles.scrollContent}>
+
         <Text style={styles.title}>Gizlilik ve Veri Politikası</Text>
+        <Text style={styles.paragraph}>Son güncelleme tarihi: 26 Ocak 2026</Text>
 
         <Text style={styles.paragraph}>
-          WellShe; kadınların günlük yaşamını, döngü takibini ve iyi olma hâlini
-          desteklemek amacıyla tasarlanmış bir mobil uygulamadır. Uygulama;
-          reklam gösterebilmek ve hata/çökme sorunlarını tespit edebilmek için
-          bazı anonim teknik verileri işler.
+          WellShe, kadınların âdet döngüsü takibi ve günlük iyi olma hâlini
+          desteklemek amacıyla tasarlanmış bir mobil uygulamadır. Bu politika,
+          uygulama içinde işlenen verilerin nasıl kullanıldığını açıklar.
         </Text>
 
-        <Text style={styles.subtitle}>Hangi veriler cihazda saklanır?</Text>
+        {/* 1 - İşlenen Veriler */}
+        <Text style={styles.subtitle}>1) İşlenen Veriler</Text>
+
+        <Text style={styles.subtitleSmall}>Sağlık Verileri</Text>
+        <Text style={styles.paragraph}>
+          WellShe uygulaması aşağıdaki kişisel sağlık verilerini işler:{"\n\n"}
+          • Âdet döngüsü tarih bilgileri{"\n"}
+          • Günlük su tüketimi kayıtları{"\n"}
+          • Zihin rahatlatma ve motivasyon tercihleri{"\n"}
+          • Kalori hesaplama amacıyla girilen yaş, boy ve kilo bilgileri{"\n\n"}
+          Bu veriler kişisel sağlık verisi kapsamında değerlendirilir.
+          Tüm sağlık verileri yalnızca kullanıcının cihazında yerel olarak saklanır.
+          Bu veriler sunucuya aktarılmaz ve üçüncü taraflarla paylaşılmaz.
+        </Text>
+
+        <Text style={styles.subtitleSmall}>Kullanıcı Tercih Verileri</Text>
         <Text style={styles.paragraph}>
           • Uygulama içinde girilen ad bilgisi{"\n"}
-          • Regl döngüsü ile ilgili tarih ve ayar bilgileri{"\n"}
           • Bildirim tercihleri{"\n"}
-          • Su sayacı ve benzeri kullanım verileri
+          • Uygulama içi ayarlar{"\n\n"}
+          Bu veriler yalnızca cihazda saklanır.
         </Text>
 
-        <Text style={styles.subtitle}>
-          Hangi veriler üçüncü taraf servislerle işlenebilir?
-        </Text>
+        {/* 2 - Üçüncü Taraf Servisler */}
+        <Text style={styles.subtitle}>2) Üçüncü Taraf Servisler</Text>
 
+        <Text style={styles.subtitleSmall}>Google AdMob</Text>
         <Text style={styles.paragraph}>
-          Reklam (Google AdMob):{"\n"}
           • Reklam gösterim ve tıklama bilgileri{"\n"}
           • Google Reklam Kimliği (AD_ID) ve cihaz tanımlayıcıları{"\n\n"}
-          Hata ve çökme raporları (Sentry):{"\n"}
-          • Uygulama hataları, çökme kayıtları ve teknik tanılama verileri
+          Bu veriler reklamların gösterilmesi ve performans ölçümü amacıyla işlenir.
         </Text>
 
-        <Text style={styles.subtitle}>Veriler neden işlenir?</Text>
+        <Text style={styles.subtitleSmall}>Sentry</Text>
         <Text style={styles.paragraph}>
+          • Uygulama hataları{"\n"}
+          • Çökme raporları{"\n"}
+          • Teknik tanılama verileri{"\n\n"}
+          Bu veriler uygulamanın stabilitesini artırmak amacıyla kullanılır.
+        </Text>
+
+        {/* 3 - Amaç */}
+        <Text style={styles.subtitle}>3) Verilerin İşlenme Amaçları</Text>
+        <Text style={styles.paragraph}>
+          • Âdet döngüsü ve günlük takip özelliklerini sağlamak{"\n"}
+          • Kalori ve su takibi hesaplamalarını sunmak{"\n"}
+          • Hatırlatıcı bildirimler göndermek{"\n"}
           • Reklam göstermek ve reklam performansını ölçmek{"\n"}
-          • Uygulama hatalarını tespit edip gidermek{"\n"}
-          • Uygulama performansını ve stabilitesini artırmak
+          • Uygulama hatalarını tespit edip gidermek
         </Text>
 
-        <Text style={styles.subtitle}>Veriler kimlerle paylaşılır?</Text>
+        {/* 4 - Paylaşım */}
+        <Text style={styles.subtitle}>4) Verilerin Paylaşımı</Text>
         <Text style={styles.paragraph}>
-          Anonim teknik veriler yalnızca aşağıdaki servislerle paylaşılır:{"\n"}
+          Sağlık verileri üçüncü taraflarla paylaşılmaz.{"\n\n"}
+          Anonim teknik veriler yalnızca:{"\n"}
           • Google AdMob{"\n"}
-          • Sentry
+          • Sentry{"\n"}
+          servisleriyle paylaşılır.
         </Text>
 
-        <Text style={styles.subtitle}>Verilerin silinmesi</Text>
+        {/* 5 - Güvenlik */}
+        <Text style={styles.subtitle}>5) Veri Güvenliği</Text>
         <Text style={styles.paragraph}>
-          Uygulamayı cihazınızdan kaldırdığınızda cihazda saklanan yerel veriler
-          silinir. Üçüncü taraf servislerde tutulan anonim teknik kayıtlar ilgili
-          servis sağlayıcıların saklama politikalarına tabidir.
+          • Tüm üçüncü taraf veri aktarımı şifreli bağlantı (HTTPS) ile yapılır.{"\n"}
+          • Sağlık verileri cihaz dışına çıkarılmaz.
         </Text>
 
-        <Text style={styles.subtitle}>KVKK kapsamındaki haklarınız</Text>
+        {/* 6 - Silme */}
+        <Text style={styles.subtitle}>6) Verilerin Silinmesi</Text>
         <Text style={styles.paragraph}>
-          KVKK kapsamında verilerinizin işlenip işlenmediğini öğrenme ve gerekli
-          hâllerde silinmesini talep etme haklarına sahipsiniz.
+          Kullanıcı aşağıdaki yollarla verilerini silebilir:{"\n\n"}
+          • Uygulamayı cihazdan kaldırarak{"\n"}
+          • Uygulama içindeki “Verilerimi sıfırla” seçeneğini kullanarak{"\n\n"}
+          Cihazdan silinen sağlık verileri geri getirilemez.{"\n"}
+          Üçüncü taraf servislerde tutulan anonim teknik kayıtlar ilgili servis sağlayıcıların saklama sürelerine tabidir.
         </Text>
 
+        {/* 7 - KVKK */}
+        <Text style={styles.subtitle}>7) KVKK Kapsamındaki Haklar</Text>
+        <Text style={styles.paragraph}>
+          KVKK kapsamında kullanıcılar:{"\n\n"}
+          • Verilerinin işlenip işlenmediğini öğrenme{"\n"}
+          • Gerekli hâllerde silinmesini talep etme{"\n\n"}
+          haklarına sahiptir.
+        </Text>
+
+        {/* 8 - İletişim */}
         <Text style={styles.subtitle}>İletişim</Text>
         <Text style={styles.paragraph}>
           wellshee@gmail.com
         </Text>
 
+        {/* Not */}
         <View style={styles.noteBox}>
           <Text style={styles.noteText}>
-            Özetle: WellShe sizi izlemek için değil, sizi desteklemek için
-            tasarlanmıştır. 🌸
+            Özetle: WellShe sizi izlemek için değil, sizi desteklemek için tasarlanmıştır. 🌸
           </Text>
         </View>
 
-        <Text style={styles.paragraph}>
-          Son güncelleme: 10 Ocak 2026
-        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -98,14 +137,21 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "700",
     color: "#4A2E2A",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
     fontWeight: "600",
     color: "#4A2E2A",
-    marginTop: 16,
+    marginTop: 18,
     marginBottom: 6,
+  },
+  subtitleSmall: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#4A2E2A",
+    marginTop: 10,
+    marginBottom: 4,
   },
   paragraph: {
     fontSize: 14,
