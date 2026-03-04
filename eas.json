@@ -7,15 +7,19 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "channel": "preview"
+      "channel": "preview",
+      "environment": "preview"
     },
     "preview": {
       "distribution": "internal",
-      "channel": "preview"
+      "channel": "preview",
+      "environment": "preview"
     },
     "production": {
+      "distribution": "store",
+      "channel": "production",
       "autoIncrement": true,
-      "channel": "production"
+      "environment": "production"
     }
   },
   "submit": {

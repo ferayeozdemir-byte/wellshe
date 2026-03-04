@@ -12,7 +12,7 @@ import React, {
   useEffect,
   useMemo,
   useRef,
-  useState,
+  useState
 } from "react";
 import {
   ActivityIndicator,
@@ -32,6 +32,12 @@ import AdBanner from "../../components/AdBanner";
 import { type CategoryId } from "../../data/content";
 import { weeklyArchive, type WeeklyItem } from "../../data/weekly";
 import { fetchLatestArticlesRemote } from "../../lib/categoriesRemote";
+import {
+  formatDateTRFromISO,
+  getCyclePhaseInfo,
+  getNextPeriodStart,
+  toISODate,
+} from "../../lib/cycle";
 import { fetchLatestWeekly } from "../../lib/weeklyRemote";
 import { CATEGORY_ICONS, type CategoryKey } from "../_ui/categoryIcons";
 import { WEEKLY_ICONS } from "../_ui/weeklyIcons";
@@ -67,8 +73,15 @@ type PeriodSettings = {
 };
 
 type PeriodLog = {
-  startDate: string; // "2025-11-10" gibi
+  startDate: string; // "2025-11-10" gibi (ISO)
 };
+
+type CyclePhase =
+  | "menstruation"
+  | "follicular"
+  | "ovulation"
+  | "luteal"
+  | "unknown";
 
 // Bildirimlerin nasıl gösterileceğini ayarla
 Notifications.setNotificationHandler({
@@ -215,10 +228,10 @@ const MOTIVATION_QUOTES: string[] = [
   "Hiçbir şey tesadüf değil. Her şey büyük bir bulmacanın parçası.",
   "Senin yolun, senin hızın.",
   "İyileşmek bir yolculuk ve yol, adım adım güzelleşir.",
-  "Kendine sınır koyma; potansiyelin düşündüğünden büyük.",
-  "İçindeki güç sandığından daha fazla.",
+  "Kendine sınır koyma, potansiyelin düşündüğünden büyük.",
+  "İçindeki güç, sandığından daha fazla.",
   "Bir dur, nefes al ve devam et.",
-  "Unutma, dDeğişim küçük bir karar ile başlar.",
+  "Unutma, değişim küçük bir karar ile başlar.",
   "Kendini affet. Yeniden başlamak özgürlüktür.",
   "Her gün, bir önceki günden daha iyi olabilirsin.",
   "Bugün kendine verdiğin her emek, yarın mutluluk olur.",
@@ -282,87 +295,19 @@ const MOTIVATION_START_DATE = new Date("2025-01-01").getTime();
 const WATER_GOAL = 6;
 const WATER_TRACK_KEY = "wellshe_water_today";
 
-// 🔴 Küçük yardımcılar – regl kartı için
-function diffInDaysUTC(from: Date, to: Date) {
-  const d1 = new Date(
-    from.getFullYear(),
-    from.getMonth(),
-    from.getDate()
-  ).getTime();
-  const d2 = new Date(
-    to.getFullYear(),
-    to.getMonth(),
-    to.getDate()
-  ).getTime();
-  return Math.floor((d2 - d1) / (1000 * 60 * 60 * 24));
-}
-
-function addDays(date: Date, days: number) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function formatDateTR(date: Date) {
-  const dd = String(date.getDate()).padStart(2, "0");
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const yyyy = date.getFullYear();
-  return `${dd}.${mm}.${yyyy}`;
-}
-
-function getTodayKey() {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  // Storage için sade ISO format
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function getPhaseInfo(cycleDay: number, settings: PeriodSettings) {
-  const { periodLength, averageCycleLength } = settings;
-
-  let phaseLabel = "Döngü";
-  let phaseDescription =
-    "Döngünün bugününü bedenini gözlemleyerek geçir. Her fazın ihtiyacı farklıdır.";
-
-  if (cycleDay <= periodLength) {
-    phaseLabel = "Regl dönemi";
-    phaseDescription =
-      "Bedeninin dinlenmeye ve yavaşlamaya ihtiyaç duyduğu bir fazdasın. Kendine nazik ol, iyi beslen ve mümkün oldukça dinlenmeye alan aç.";
-  } else if (cycleDay <= periodLength + 7) {
-    phaseLabel = "Toparlanma & yenilenme";
-    phaseDescription =
-      "Enerjin yavaş yavaş yükseliyor. Hafif egzersizler, düzenli uyku ve dengeli beslenme sana çok iyi gelebilir.";
-  } else if (
-    cycleDay >= Math.round(averageCycleLength / 2) - 1 &&
-    cycleDay <= Math.round(averageCycleLength / 2) + 1
-  ) {
-    phaseLabel = "Ovülasyon (zirve enerji)";
-    phaseDescription =
-      "Enerjinin ve çekiciliğinin en yüksek olduğu fazdasın. Sosyalleşmek, üretmek ve görünür olmak için güzel bir zaman.";
-  } else if (cycleDay > periodLength) {
-    phaseLabel = "Luteal dönem";
-    phaseDescription =
-      "Bedenin yavaş yavaş içe dönmeye hazırlanıyor. Duygular yoğunlaşabilir; hafif hareket, sıcak içecekler ve kendine şefkatle yaklaşmak destekleyici olacaktır.";
+// 🔁 Faz anahtarından tek cümlelik mini öneri (Home kartı için)
+function getPhaseOneLinerFromKey(phaseKey: CyclePhase): string {
+  if (phaseKey === "menstruation") {
+    return "Regl fazındasın. Tempoyu biraz düşürmek, sıcak içecekler hazırlamak ve yumuşak dinlenme alanları yaratmak bedenine çok iyi gelebilir.";
   }
-
-  return { phaseLabel, phaseDescription };
-}
-
-// 🔁 Faz etiketinden tek cümlelik mini öneri
-function getPhaseOneLiner(phaseLabel: string): string {
-  if (phaseLabel.startsWith("Regl")) {
-    return "Regl fazındasın; tempoyu biraz düşürmek, sıcak içecekler hazırlamak ve yumuşak dinlenme alanları yaratmak bedenine çok iyi gelebilir.";
+  if (phaseKey === "follicular") {
+    return "Folikül fazındasın. Yeni başlangıçlar, plan yapmak ve hafif hareketle rutine dönmek için destekleyici bir dönemdesin.";
   }
-  if (phaseLabel.startsWith("Toparlanma")) {
-    return "Toparlanma fazındasın; hafif hareket ve dengeli beslenme enerjini yavaş yavaş geri çağırmana yardımcı olur.";
+  if (phaseKey === "ovulation") {
+    return "Ovülasyon fazındasın. Enerjinin yükseldiği bu dönemde sosyalleşmek ve üretmek için kendine alan açabilirsin.";
   }
-  if (phaseLabel.startsWith("Ovülasyon")) {
-    return "Ovülasyon fazındasın; enerjinin yüksek olduğu bu dönemde sosyalleşmek ve üretmek için kendine alan açabilirsin.";
-  }
-  if (phaseLabel.startsWith("Luteal")) {
-    return "Luteal fazdasın; enerjini korumak için sınır çizmen ve dinlenmeye alan açman çok kıymetli.";
+  if (phaseKey === "luteal") {
+    return "Luteal fazdasın. Enerjini korumak için sınır çizmen, yapılacakları sadeleştirmen ve dinlenmeye alan açman çok kıymetli.";
   }
   return "Bugün bedenini gözlemleyip ihtiyacına göre küçük bir iyilik yapman çok değerli.";
 }
@@ -575,13 +520,18 @@ export default function HomeScreen() {
   const loadWaterForToday = useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem(WATER_TRACK_KEY);
+      const todayKey = toISODate(new Date());
+
       if (!raw) {
         setWaterCount(0);
+        await AsyncStorage.setItem(
+          WATER_TRACK_KEY,
+          JSON.stringify({ date: todayKey, count: 0 })
+        );
         return;
       }
 
       const parsed = JSON.parse(raw);
-      const todayKey = getTodayKey();
 
       if (parsed?.date === todayKey && typeof parsed.count === "number") {
         setWaterCount(parsed.count);
@@ -661,16 +611,18 @@ export default function HomeScreen() {
     book: WeeklyItem | null;
   } | null>(null);
 
-  // Regl bilgisi
+  // Regl bilgisi (tek kaynak: lib/cycle)
   const [cycleInfo, setCycleInfo] = useState<{
-    cycleDay: number;
-    phaseLabel: string;
+    phaseKey: CyclePhase;
+    phaseTitle: string;
     phaseDescription: string;
     nextPeriodDateText: string;
   } | null>(null);
 
   const motivationText = getTodayMotivation();
-  const phaseOneLiner = cycleInfo ? getPhaseOneLiner(cycleInfo.phaseLabel) : null;
+  const phaseOneLiner = cycleInfo
+    ? getPhaseOneLinerFromKey(cycleInfo.phaseKey)
+    : null;
 
   // Kullanıcı adını yükle
   useEffect(() => {
@@ -749,13 +701,9 @@ export default function HomeScreen() {
         getFirstExisting(PERIOD_LOGS_KEYS),
       ]);
 
-      console.log("🔴 PERIOD DEBUG - RAW values:", {
-        settingsRaw,
-        logsRaw,
-      });
+      console.log("🔴 PERIOD DEBUG - RAW values:", { settingsRaw, logsRaw });
 
       if (!settingsRaw || !logsRaw) {
-        console.log("🔴 PERIOD DEBUG - settings veya logs yok, cycleInfo null");
         setCycleInfo(null);
         return;
       }
@@ -778,7 +726,6 @@ export default function HomeScreen() {
         } else if (parsedLogs && Array.isArray(parsedLogs.logs)) {
           logs = parsedLogs.logs;
         } else if (parsedLogs && parsedLogs.startDate) {
-          // Tek kayıt tutulmuş eski formatı da destekle
           logs = [parsedLogs as PeriodLog];
         } else {
           console.log("❌ PERIOD DEBUG - logs beklenen formatta değil:", parsedLogs);
@@ -792,46 +739,27 @@ export default function HomeScreen() {
       }
 
       if (!logs.length) {
-        console.log("🔴 PERIOD DEBUG - logs array boş, cycleInfo null");
         setCycleInfo(null);
         return;
       }
 
-      const lastLog = logs[logs.length - 1];
-      const lastStart = new Date(lastLog.startDate);
-      const today = new Date();
+      // ✅ Tek kaynak: faz + nextPeriod = lib/cycle
+      const phase = getCyclePhaseInfo(logs, settings);
+      const nextIso = getNextPeriodStart(logs, settings);
+      const nextPeriodDateText = nextIso
+        ? formatDateTRFromISO(nextIso)
+        : "Henüz hesaplanamıyor";
 
-      const dayDiff = diffInDaysUTC(lastStart, today);
-      const cycleDay = dayDiff + 1;
-
-      console.log("🔴 PERIOD DEBUG - lastStart, cycleDay:", {
-        lastStart: lastStart.toISOString(),
-        today: today.toISOString(),
-        dayDiff,
-        cycleDay,
-      });
-
-      if (cycleDay <= 0) {
-        console.log("🔴 PERIOD DEBUG - cycleDay <= 0, henüz başlamamış gibi");
-        setCycleInfo(null);
-        return;
-      }
-
-      const nextStart = addDays(lastStart, settings.averageCycleLength);
-      const nextPeriodDateText = formatDateTR(nextStart);
-
-      const { phaseLabel, phaseDescription } = getPhaseInfo(cycleDay, settings);
-
-      console.log("🔴 PERIOD DEBUG - phase:", {
-        phaseLabel,
-        phaseDescription,
-        nextPeriodDateText,
+      console.log("🔴 PERIOD DEBUG - phase/next:", {
+        phaseKey: phase.key,
+        phaseTitle: phase.title,
+        nextIso,
       });
 
       setCycleInfo({
-        cycleDay,
-        phaseLabel,
-        phaseDescription,
+        phaseKey: phase.key as CyclePhase,
+        phaseTitle: phase.title,
+        phaseDescription: phase.description,
         nextPeriodDateText,
       });
     } catch (e) {
@@ -1007,7 +935,7 @@ export default function HomeScreen() {
 
   // Su sayacını değiştir + AsyncStorage'a kaydet (günlük)
   const changeWaterCount = (delta: number) => {
-    const todayKey = getTodayKey();
+    const todayKey = toISODate(new Date());
 
     setWaterCount((prev: number) => {
       let next = prev + delta;
@@ -1068,54 +996,54 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-              {/* Logo */}
-      <View style={styles.appLogoCircle}>
-        <Image
-          source={require("../../assets/images/logo/wellshe_logo.png")}
-          style={styles.appLogoInner}
-          resizeMode="cover" // 🔴 ARTIK COVER
-        />
-      </View>
-
-      {/* ✅ OTA DEBUG KARTI (PROD’DA GİZLİ) */}
-      {showOtaDebug ? (
-        <View style={styles.otaCard}>
-          <Text style={styles.otaTitle}>OTA DEBUG</Text>
-          <Text style={styles.otaMono}>{otaDebug}</Text>
-
-          <Pressable style={styles.otaBtn} onPress={checkAndApplyOta}>
-            <Text style={styles.otaBtnText}>CHECK & APPLY OTA</Text>
-          </Pressable>
-
-          <Pressable style={styles.otaBtnSecondary} onPress={reloadOnly}>
-            <Text style={styles.otaBtnText}>RELOAD ONLY</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-            {/* Sponsor satırı: ortalı logo + metin */}
-      <View style={styles.sponsorRow}>
-        <View style={styles.sponsorLogoCircle}>
+        {/* Logo */}
+        <View style={styles.appLogoCircle}>
           <Image
-            source={require("../../assets/sponsors/global-solar.png")}
-            style={styles.sponsorLogoInner}
-            resizeMode="cover" // 🔴 burada da cover
+            source={require("../../assets/images/logo/wellshe_logo.png")}
+            style={styles.appLogoInner}
+            resizeMode="cover"
           />
         </View>
 
-        <Text style={styles.sponsorRowText}>Enerji sponsorumuz</Text>
-      </View>
+        {/* ✅ OTA DEBUG KARTI (PROD’DA GİZLİ) */}
+        {showOtaDebug ? (
+          <View style={styles.otaCard}>
+            <Text style={styles.otaTitle}>OTA DEBUG</Text>
+            <Text style={styles.otaMono}>{otaDebug}</Text>
 
-      {/* Selamlama + Profil */}
-      <View style={styles.greetingRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.greeting}>Merhaba {name} 🌸</Text>
+            <Pressable style={styles.otaBtn} onPress={checkAndApplyOta}>
+              <Text style={styles.otaBtnText}>CHECK & APPLY OTA</Text>
+            </Pressable>
+
+            <Pressable style={styles.otaBtnSecondary} onPress={reloadOnly}>
+              <Text style={styles.otaBtnText}>RELOAD ONLY</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {/* Sponsor satırı: ortalı logo + metin */}
+        <View style={styles.sponsorRow}>
+          <View style={styles.sponsorLogoCircle}>
+            <Image
+              source={require("../../assets/sponsors/global-solar.png")}
+              style={styles.sponsorLogoInner}
+              resizeMode="cover"
+            />
+          </View>
+
+          <Text style={styles.sponsorRowText}>Enerji sponsorumuz</Text>
         </View>
 
-        <TouchableOpacity onPress={() => router.push("/profile")}>
-          <Text style={styles.profileLink}>Profil</Text>
-        </TouchableOpacity>
-      </View>
+        {/* Selamlama + Profil */}
+        <View style={styles.greetingRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.greeting}>Merhaba {name} 🌸</Text>
+          </View>
+
+          <TouchableOpacity onPress={() => router.push("/profile")}>
+            <Text style={styles.profileLink}>Profil</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Günün motivasyon cümlesi */}
         <View style={styles.motivationCard}>
@@ -1213,7 +1141,11 @@ export default function HomeScreen() {
             </Text>
 
             <TouchableOpacity
-              style={[styles.reminderButton, { marginTop: 8 }, styles.moveReminderButton]}
+              style={[
+                styles.reminderButton,
+                { marginTop: 8 },
+                styles.moveReminderButton,
+              ]}
               onPress={handleDailyMoveReminder}
             >
               <Text style={styles.reminderButtonText}>Bana Hatırlat</Text>
@@ -1377,7 +1309,7 @@ export default function HomeScreen() {
           </Text>
         </Pressable>
 
-                {/* Çiçekli minik not */}
+        {/* Çiçekli minik not */}
         <View style={styles.flowerNote}>
           <Text style={styles.flowerText}>
             🌸 Unutma, kendine iyi bakmak lüks değil; temel ihtiyaç.
@@ -1394,25 +1326,15 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#FFF7F3",
-  },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
+  safeArea: { flex: 1, backgroundColor: "#FFF7F3" },
+  scrollContent: { paddingHorizontal: 16, paddingBottom: 24 },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#FFF7F3",
   },
-  centerInline: {
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 12,
-  },
+  centerInline: { justifyContent: "center", alignItems: "center", paddingVertical: 12 },
 
   // ✅ OTA
   otaCard: {
@@ -1423,15 +1345,8 @@ const styles = StyleSheet.create({
     borderColor: "#000000",
     marginBottom: 12,
   },
-  otaTitle: {
-    fontWeight: "800",
-    marginBottom: 6,
-    color: "#000000",
-  },
-  otaMono: {
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-    color: "#000000",
-  },
+  otaTitle: { fontWeight: "800", marginBottom: 6, color: "#000000" },
+  otaMono: { fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", color: "#000000" },
   otaBtn: {
     marginTop: 10,
     paddingVertical: 10,
@@ -1446,27 +1361,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#444444",
     alignItems: "center",
   },
-  otaBtnText: {
-    color: "#FFFFFF",
-    fontWeight: "800",
-  },
+  otaBtnText: { color: "#FFFFFF", fontWeight: "800" },
 
-  onboardingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-  },
-  welcomeTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    marginBottom: 12,
-    color: "#4A2E2A",
-  },
-  welcomeSubtitle: {
-    fontSize: 16,
-    marginBottom: 24,
-    color: "#6B4A44",
-  },
+  onboardingContainer: { flex: 1, justifyContent: "center", padding: 24 },
+  welcomeTitle: { fontSize: 24, fontWeight: "700", marginBottom: 12, color: "#4A2E2A" },
+  welcomeSubtitle: { fontSize: 16, marginBottom: 24, color: "#6B4A44" },
   input: {
     borderWidth: 1,
     borderColor: "#F3B6B3",
@@ -1478,35 +1377,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     color: "#4A2E2A",
   },
-  button: {
-    backgroundColor: "#F3B6B3",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  buttonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  greetingRow: {
-    marginTop: 24,
-    marginBottom: 16,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  greeting: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#4A2E2A",
-  },
+  button: { backgroundColor: "#F3B6B3", paddingVertical: 12, borderRadius: 12, alignItems: "center" },
+  buttonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
+
+  greetingRow: { marginTop: 24, marginBottom: 16, flexDirection: "row", alignItems: "center" },
+  greeting: { fontSize: 22, fontWeight: "700", color: "#4A2E2A" },
   profileLink: {
     fontSize: 18,
     color: "#B0756F",
     fontWeight: "600",
     textDecorationLine: "underline",
   },
-    headerLogo: {
+
+  headerLogo: {
     width: 110,
     height: 110,
     alignSelf: "center",
@@ -1514,37 +1397,30 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     opacity: 0.95,
   },
-      appLogoCircle: {
+  appLogoCircle: {
     width: 110,
     height: 110,
     borderRadius: 55,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#F3B6B3",
-
     alignSelf: "center",
     alignItems: "center",
     justifyContent: "center",
-
     marginTop: 16,
     marginBottom: 10,
+    overflow: "hidden",
+  },
+  appLogoInner: { width: "110%", height: "110%" },
 
-    overflow: "hidden", // 🔴 İçeriği yuvarlağa göre kırp
-  },
-  appLogoInner: {
-    width: "110%",      // 🔴 Daireyi tamamen doldursun
-    height: "110%",
-  },
   motivationCard: {
     padding: 16,
     borderRadius: 16,
     backgroundColor: "#FCE8E4",
     marginBottom: 16,
   },
-  motivationText: {
-    fontSize: 16,
-    color: "#5A3A35",
-  },
+  motivationText: { fontSize: 16, color: "#5A3A35" },
+
   contentCardRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1555,23 +1431,12 @@ const styles = StyleSheet.create({
     borderColor: "#F3B6B3",
     marginBottom: 10,
   },
-  favoriteButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  favoriteIcon: {
-    fontSize: 22,
-  },
-  phaseMiniTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#4A2E2A",
-    marginBottom: 4,
-  },
-  phaseMiniText: {
-    fontSize: 14,
-    color: "#5A3A35",
-  },
+  favoriteButton: { paddingHorizontal: 8, paddingVertical: 4 },
+  favoriteIcon: { fontSize: 22 },
+
+  phaseMiniTitle: { fontSize: 16, fontWeight: "600", color: "#4A2E2A", marginBottom: 4 },
+  phaseMiniText: { fontSize: 14, color: "#5A3A35" },
+
   periodCard: {
     padding: 10,
     borderRadius: 16,
@@ -1580,22 +1445,9 @@ const styles = StyleSheet.create({
     borderColor: "#F3B6D0",
     marginBottom: 18,
   },
-  periodTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#4A2E2A",
-    marginBottom: 4,
-  },
-  periodText: {
-    fontSize: 14,
-    color: "#5A3A35",
-    marginBottom: 6,
-  },
-  periodNext: {
-    fontSize: 14,
-    color: "#7A5852",
-    marginBottom: 10,
-  },
+  periodTitle: { fontSize: 18, fontWeight: "600", color: "#4A2E2A", marginBottom: 4 },
+  periodText: { fontSize: 14, color: "#5A3A35", marginBottom: 6 },
+  periodNext: { fontSize: 14, color: "#7A5852", marginBottom: 10 },
   periodButton: {
     alignSelf: "flex-start",
     paddingHorizontal: 10,
@@ -1603,16 +1455,9 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: "#F3B6D0",
   },
-  periodButtonText: {
-    fontSize: 16,
-    color: "#FFFFFF",
-    fontWeight: "600",
-  },
-  row: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 20,
-  },
+  periodButtonText: { fontSize: 16, color: "#FFFFFF", fontWeight: "600" },
+
+  row: { flexDirection: "row", gap: 12, marginBottom: 20 },
   smallCard: {
     flex: 1,
     padding: 12,
@@ -1621,17 +1466,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#F3B6B3",
   },
-  smallCardTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 6,
-    color: "#4A2E2A",
-  },
-  smallCardText: {
-    fontSize: 15,
-    color: "#5A3A35",
-    marginBottom: 8,
-  },
+  smallCardTitle: { fontSize: 16, fontWeight: "600", marginBottom: 6, color: "#4A2E2A" },
+  smallCardText: { fontSize: 15, color: "#5A3A35", marginBottom: 8 },
+
   waterRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1649,15 +1486,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#FFF7F3",
   },
-  waterButtonText: {
-    fontSize: 14,
-    color: "#4A2E2A",
-  },
-  waterCountText: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#4A2E2A",
-  },
+  waterButtonText: { fontSize: 14, color: "#4A2E2A" },
+  waterCountText: { fontSize: 20, fontWeight: "700", color: "#4A2E2A" },
+
   reminderButton: {
     marginTop: 8,
     paddingVertical: 6,
@@ -1665,31 +1496,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#F3B6B3",
     alignItems: "center",
   },
-  reminderButtonText: {
-    fontSize: 13,
-    color: "#FFFFFF",
-    fontWeight: "600",
-  },
-  moveReminderButton: {
-    marginTop: 20,
-  },
-  section: {
-    marginBottom: 20,
-    marginTop: 4,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 12,
-    color: "#4A2E2A",
-  },
-  menuStoriesContent: {
-    paddingRight: 8,
-  },
-  menuItem: {
-    alignItems: "center",
-    marginRight: 12,
-  },
+  reminderButtonText: { fontSize: 13, color: "#FFFFFF", fontWeight: "600" },
+  moveReminderButton: { marginTop: 20 },
+
+  section: { marginBottom: 20, marginTop: 4 },
+  sectionTitle: { fontSize: 18, fontWeight: "600", marginBottom: 12, color: "#4A2E2A" },
+
+  menuStoriesContent: { paddingRight: 8 },
+  menuItem: { alignItems: "center", marginRight: 12 },
   menuCircle: {
     width: 88,
     height: 72,
@@ -1701,10 +1515,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#f0c6c6",
   },
-  menuIcon: {
-    width: "100%",
-    height: "100%",
-  },
+  menuIcon: { width: "100%", height: "100%" },
   menuLabel: {
     fontSize: 14,
     fontWeight: "700",
@@ -1712,6 +1523,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: "#4A2E2A",
   },
+
   contentCard: {
     padding: 12,
     borderRadius: 12,
@@ -1720,25 +1532,12 @@ const styles = StyleSheet.create({
     borderColor: "#F3B6B3",
     marginBottom: 10,
   },
-  contentCategory: {
-    fontSize: 15,
-    fontWeight: "600",
-    marginBottom: 4,
-    color: "#B0756F",
-  },
-  contentTitle: {
-    fontSize: 16,
-    color: "#4A2E2A",
-  },
-  flowerNote: {
-    marginTop: 8,
-    marginBottom: 12,
-  },
-  flowerText: {
-    fontSize: 16,
-    color: "#6B4A44",
-    textAlign: "center",
-  },
+  contentCategory: { fontSize: 15, fontWeight: "600", marginBottom: 4, color: "#B0756F" },
+  contentTitle: { fontSize: 16, color: "#4A2E2A" },
+
+  flowerNote: { marginTop: 8, marginBottom: 12 },
+  flowerText: { fontSize: 16, color: "#6B4A44", textAlign: "center" },
+
   astroNotifyButton: {
     marginTop: 10,
     paddingVertical: 10,
@@ -1746,11 +1545,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#F3B6D0",
     alignItems: "center",
   },
-  astroNotifyButtonText: {
-    fontSize: 16,
-    color: "#FFFFFF",
-    fontWeight: "700",
-  },
+  astroNotifyButtonText: { fontSize: 16, color: "#FFFFFF", fontWeight: "700" },
+
   latestIconWrap: {
     width: 28,
     height: 28,
@@ -1760,48 +1556,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#F3B6B3",
   },
-  latestIcon: {
-    width: "100%",
-    height: "100%",
-  },
-  latestCategoryText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#B0756F",
-  },
-  weeklyRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 8,
-  },
-  weeklyIcon: {
-    width: 30,
-    height: 30,
-  },
-  weeklyLabel: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#B0756F",
-  },
-    homeAdContainer: {
-    marginTop: 8,
-    marginBottom: 4,
-    alignItems: "center",
-  },
-  sectionHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-  },
-  latestRowTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 6,
-  },
-      // 🔆 Sponsor satırı (logo + metin)
-    sponsorRow: {
+  latestIcon: { width: "100%", height: "100%" },
+  latestCategoryText: { fontSize: 16, fontWeight: "700", color: "#B0756F" },
+
+  weeklyRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  weeklyIcon: { width: 30, height: 30 },
+  weeklyLabel: { fontSize: 16, fontWeight: "800", color: "#B0756F" },
+
+  homeAdContainer: { marginTop: 8, marginBottom: 4, alignItems: "center" },
+
+  sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-start" },
+  latestRowTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 6 },
+
+  sponsorRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -1818,12 +1585,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
-    overflow: "hidden", // 🔴 burada da kırpsın
+    overflow: "hidden",
   },
-  sponsorLogoInner: {
-    width: "120%",      // 🔴 tam daireyi doldur
-    height: "120%",
-  },
+  sponsorLogoInner: { width: "120%", height: "120%" },
   sponsorRowText: {
     fontSize: 14,
     fontWeight: "700",
@@ -1832,14 +1596,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
 
-  // 🔆 Sponsor + Profil
-  sponsorProfileColumn: {
-    alignItems: "flex-end",
-  },
-  sponsorBadge: {
-    alignItems: "flex-end",
-    marginBottom: 4,
-  },
+  sponsorProfileColumn: { alignItems: "flex-end" },
+  sponsorBadge: { alignItems: "flex-end", marginBottom: 4 },
   sponsorTag: {
     fontSize: 10,
     fontWeight: "600",
@@ -1848,8 +1606,5 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 2,
   },
-  sponsorLogoSmall: {
-    width: 72,
-    height: 40,
-  },
+  sponsorLogoSmall: { width: 72, height: 40 },
 });

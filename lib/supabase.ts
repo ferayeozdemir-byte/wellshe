@@ -1,33 +1,42 @@
 // lib/supabase.ts
 import Constants from "expo-constants";
 
-// 1) EXPO_PUBLIC_ değişkenleri normalde build-time inject edilir.
-// 2) Bazı senaryolarda (yanlış EAS environment) undefined gelebilir.
-// Bu yüzden fallback + net hata veriyoruz.
+type SupabaseEnvName =
+  | "EXPO_PUBLIC_SUPABASE_URL"
+  | "EXPO_PUBLIC_SUPABASE_ANON_KEY";
 
-function readEnv(name: "EXPO_PUBLIC_SUPABASE_URL" | "EXPO_PUBLIC_SUPABASE_ANON_KEY") {
-  const v =
-    process.env?.[name] ??
-    // (İleride isterseniz app.json extra'ya da koyabilirsiniz; şimdilik sadece fallback)
-    (Constants?.expoConfig as any)?.extra?.[name] ??
-    "";
+function readEnv(name: SupabaseEnvName) {
+  // ✅ Statik erişim: Expo env inject bununla çalışır (kritik)
+  const fromProcess =
+    name === "EXPO_PUBLIC_SUPABASE_URL"
+      ? process.env.EXPO_PUBLIC_SUPABASE_URL
+      : process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-  return String(v || "").trim();
+  // ✅ Fallback 1: expoConfig.extra (SDK 49+)
+  const extra1 = (Constants.expoConfig as any)?.extra?.[name];
+
+  // ✅ Fallback 2: manifest2 / manifest (bazı prod durumları)
+  const extra2 =
+    (Constants as any)?.manifest2?.extra?.[name] ??
+    (Constants as any)?.manifest?.extra?.[name];
+
+  const v = fromProcess ?? extra1 ?? extra2 ?? "";
+  return String(v).trim();
 }
 
 const SUPABASE_URL = readEnv("EXPO_PUBLIC_SUPABASE_URL");
 const SUPABASE_ANON_KEY = readEnv("EXPO_PUBLIC_SUPABASE_ANON_KEY");
 
-// Uygulama açılır açılmaz env durumunu bir kere logla (anahtarın kendisini yazmıyoruz)
-console.log("[SB] env url present?", Boolean(SUPABASE_URL));
-console.log("[SB] env anon present?", Boolean(SUPABASE_ANON_KEY));
+if (__DEV__) {
+  console.log("[SB] env url present?", Boolean(SUPABASE_URL));
+  console.log("[SB] env anon present?", Boolean(SUPABASE_ANON_KEY));
+}
 
 function assertEnv() {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    // Burada bilinçli şekilde net hata veriyoruz ki “içerik gelmiyor” diye boğuşmayın.
     throw new Error(
-      `[SB] Missing env vars. SUPABASE_URL or SUPABASE_ANON_KEY is empty. ` +
-        `This usually means the EAS build/update used the wrong environment (e.g. profile=development but env vars exist only in preview/production).`
+      `[SB] Missing env vars. EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY is empty. ` +
+        `This usually means the JS bundle did not receive EXPO_PUBLIC vars (wrong EAS environment or dynamic env access).`
     );
   }
 }
@@ -40,7 +49,6 @@ function baseHeaders() {
   };
 }
 
-// Supabase REST base: /rest/v1
 function restUrl(path: string) {
   assertEnv();
   return `${SUPABASE_URL}/rest/v1${path}`;
@@ -52,7 +60,6 @@ export function publicStorageUrl(bucket: string, path: string) {
 }
 
 function safeJsonParse<T>(text: string): T {
-  // boş string / json olmayan cevaplarda patlamasın
   try {
     return JSON.parse(text) as T;
   } catch {
@@ -62,7 +69,7 @@ function safeJsonParse<T>(text: string): T {
 
 export async function sbGetOne<T>(pathWithQuery: string): Promise<T> {
   const url = restUrl(pathWithQuery);
-  console.log("[SB] GET(one)", url);
+  if (__DEV__) console.log("[SB] GET(one)", url);
 
   const res = await fetch(url, {
     headers: {
@@ -71,23 +78,20 @@ export async function sbGetOne<T>(pathWithQuery: string): Promise<T> {
     },
   });
 
-  console.log("[SB] status(one)", res.status);
-
   const text = await res.text();
 
   if (!res.ok) {
-    console.error("[SB] error(one)", text);
+    console.error("[SB] error(one)", res.status, text);
     throw new Error(`Supabase REST error ${res.status}: ${text}`);
   }
 
-  const json = safeJsonParse<T>(text);
-  console.log("[SB] ok(one)");
-  return json;
+  if (__DEV__) console.log("[SB] ok(one)");
+  return safeJsonParse<T>(text);
 }
 
 export async function sbGetMany<T>(pathWithQuery: string): Promise<T[]> {
   const url = restUrl(pathWithQuery);
-  console.log("[SB] GET(many)", url);
+  if (__DEV__) console.log("[SB] GET(many)", url);
 
   const res = await fetch(url, {
     headers: {
@@ -96,17 +100,15 @@ export async function sbGetMany<T>(pathWithQuery: string): Promise<T[]> {
     },
   });
 
-  console.log("[SB] status(many)", res.status);
-
   const text = await res.text();
 
   if (!res.ok) {
-    console.error("[SB] error(many)", text);
+    console.error("[SB] error(many)", res.status, text);
     throw new Error(`Supabase REST error ${res.status}: ${text}`);
   }
 
   const json = safeJsonParse<T[]>(text);
-  console.log("[SB] ok count(many)", Array.isArray(json) ? json.length : "n/a");
+  if (__DEV__) console.log("[SB] ok count(many)", Array.isArray(json) ? json.length : "n/a");
   return json;
 }
 
@@ -120,7 +122,7 @@ export async function callEdgeFunction<T>(
   const tokenToUse = authToken ?? SUPABASE_ANON_KEY;
   const url = `${SUPABASE_URL}/functions/v1/${functionName}`;
 
-  console.log("[SB] EDGE call", url);
+  if (__DEV__) console.log("[SB] EDGE call", url);
 
   const res = await fetch(url, {
     method: "POST",
@@ -132,14 +134,12 @@ export async function callEdgeFunction<T>(
   });
 
   const text = await res.text();
-  console.log("[SB] EDGE status", res.status);
 
   if (!res.ok) {
-    console.error("[SB] EDGE error", text);
+    console.error("[SB] EDGE error", res.status, text);
     throw new Error(`Edge error ${res.status}: ${text}`);
   }
 
-  // Edge function bazen text döndürebilir; json parse zorlamıyoruz
   try {
     return JSON.parse(text) as T;
   } catch {

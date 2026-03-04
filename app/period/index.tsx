@@ -6,6 +6,8 @@ import { Stack } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -16,6 +18,18 @@ import {
 } from "react-native";
 import { Calendar } from "react-native-calendars";
 import AdBanner from "../../components/AdBanner";
+
+import {
+  formatDateTRFromISO,
+  formatRangeTR,
+  fromISODate,
+  getCyclePhaseInfo,
+  getNextPeriodStart,
+  getOvulationInfo,
+  isFutureISODate,
+  parseTRDateToISO,
+  toISODate,
+} from "../../lib/cycle";
 
 type DateObject = { dateString: string };
 
@@ -33,12 +47,6 @@ type CycleNotificationIds = {
   start?: string;
 };
 
-type OvulationInfo = {
-  ovulationDate: string | null;
-  windowStart: string | null;
-  windowEnd: string | null;
-};
-
 type MoodLevel = "low" | "neutral" | "good" | "great";
 
 type MoodDay = {
@@ -48,137 +56,35 @@ type MoodDay = {
 
 type MoodData = Record<string, MoodDay>;
 
-type CyclePhase =
-  | "menstruation"
-  | "follicular"
-  | "ovulation"
-  | "luteal"
-  | "unknown";
-
-type CyclePhaseInfo = {
-  key: CyclePhase;
-  title: string;
-  description: string;
-  suggestion: string;
-};
-
 const PERIOD_SETTINGS_KEY = "wellshe_period_settings";
 const PERIOD_LOGS_KEY = "wellshe_period_logs";
 const CYCLE_NOTIFICATION_IDS_KEY = "wellshe_cycle_notification_ids";
 const MOOD_DATA_KEY = "wellshe_mood_data";
 
-// ✅ Minimal ek: default ayarları tek yerden yönetelim
+// 🧪 DEBUG: Prod’da bile görebilmek için gizli panel
+const PERIOD_DEBUG_KEYS = [
+  "wellshe_period_settings",
+  "wellshe_period_logs",
+  "period_settings",
+  "periodSettings",
+  "period_logs",
+  "periodLogs",
+];
+
+function safeJsonParse<T = any>(raw: string | null): T | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+// ✅ Default ayarlar
 const DEFAULT_SETTINGS: PeriodSettings = {
   averageCycleLength: 28,
   periodLength: 5,
 };
-
-// Yardımcı: Date -> "YYYY-MM-DD"
-function formatDate(date: Date): string {
-  const y = date.getFullYear();
-  const m = `${date.getMonth() + 1}`.padStart(2, "0");
-  const d = `${date.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-// ISO -> "GG.AA.YYYY"
-function formatDateTRFromISO(iso: string): string {
-  const [y, m, d] = iso.split("-");
-  if (!y || !m || !d) return iso;
-  return `${d}.${m}.${y}`;
-}
-
-function parseTRDateToISO(tr: string): string | null {
-  const match = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(tr.trim());
-  if (!match) return null;
-
-  const [, dStr, mStr, yStr] = match;
-  const d = parseInt(dStr, 10);
-  const m = parseInt(mStr, 10);
-  const y = parseInt(yStr, 10);
-
-  const date = new Date(y, m - 1, d);
-  if (Number.isNaN(date.getTime())) return null;
-
-  if (
-    date.getFullYear() !== y ||
-    date.getMonth() !== m - 1 ||
-    date.getDate() !== d
-  ) {
-    return null;
-  }
-
-  return formatDate(date);
-}
-
-function formatRangeTR(startIso: string, endIso: string): string {
-  const [sy, sm, sd] = startIso.split("-");
-  const [ey, em, ed] = endIso.split("-");
-  if (!sy || !sm || !sd || !ey || !em || !ed) return `${startIso} - ${endIso}`;
-
-  const startShort = `${sd}.${sm}`;
-  const endShort = `${ed}.${em}`;
-
-  if (sy === ey) return `${startShort} - ${endShort} ${sy}`;
-  return `${startShort}.${sy} - ${endShort}.${ey}`;
-}
-
-function isValidISODate(str: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
-  const date = new Date(str);
-  if (Number.isNaN(date.getTime())) return false;
-  return formatDate(date) === str;
-}
-
-function isFutureISODate(iso: string): boolean {
-  if (!isValidISODate(iso)) return false;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const picked = new Date(iso);
-  picked.setHours(0, 0, 0, 0);
-
-  return picked.getTime() > today.getTime();
-}
-
-function getNextPeriodStart(
-  logs: PeriodLog[],
-  settings: PeriodSettings | null
-): string | null {
-  if (!settings || logs.length === 0) return null;
-  const last = logs[logs.length - 1];
-  const lastDate = new Date(last.startDate);
-  lastDate.setDate(lastDate.getDate() + settings.averageCycleLength);
-  return formatDate(lastDate);
-}
-
-function getOvulationInfo(
-  logs: PeriodLog[],
-  settings: PeriodSettings | null
-): OvulationInfo {
-  if (!settings || logs.length === 0) {
-    return { ovulationDate: null, windowStart: null, windowEnd: null };
-  }
-
-  const lastStart = new Date(logs[logs.length - 1].startDate);
-  const ovulation = new Date(lastStart);
-  ovulation.setDate(
-    ovulation.getDate() + Math.round(settings.averageCycleLength / 2)
-  );
-
-  const windowStart = new Date(ovulation);
-  windowStart.setDate(windowStart.getDate() - 2);
-
-  const windowEnd = new Date(ovulation);
-  windowEnd.setDate(windowEnd.getDate() + 2);
-
-  return {
-    ovulationDate: formatDate(ovulation),
-    windowStart: formatDate(windowStart),
-    windowEnd: formatDate(windowEnd),
-  };
-}
 
 function getMarkedDates(
   logs: PeriodLog[],
@@ -189,12 +95,13 @@ function getMarkedDates(
 
   const periodLength = settings.periodLength;
 
+  // Geçmiş regl günleri
   logs.forEach((log) => {
-    const start = new Date(log.startDate);
+    const start = fromISODate(log.startDate);
     for (let i = 0; i < periodLength; i++) {
       const d = new Date(start);
       d.setDate(d.getDate() + i);
-      const key = formatDate(d);
+      const key = toISODate(d);
       marked[key] = {
         ...(marked[key] || {}),
         selected: true,
@@ -203,30 +110,32 @@ function getMarkedDates(
     }
   });
 
+  // Tahmini sonraki regl günleri
   const next = getNextPeriodStart(logs, settings);
   if (next) {
-    const nextStart = new Date(next);
+    const nextStart = fromISODate(next);
     for (let i = 0; i < periodLength; i++) {
       const d = new Date(nextStart);
       d.setDate(d.getDate() + i);
-      const key = formatDate(d);
+      const key = toISODate(d);
       if (!marked[key]) {
         marked[key] = { selected: true, selectedColor: "#C4A1FF" };
       }
     }
   }
 
+  // Ovülasyon + verimli günler
   const ovInfo = getOvulationInfo(logs, settings);
   if (ovInfo.ovulationDate && ovInfo.windowStart && ovInfo.windowEnd) {
-    const ws = new Date(ovInfo.windowStart);
-    const we = new Date(ovInfo.windowEnd);
+    const ws = fromISODate(ovInfo.windowStart);
+    const we = fromISODate(ovInfo.windowEnd);
 
     for (
       let d = new Date(ws.getTime());
       d.getTime() <= we.getTime();
       d.setDate(d.getDate() + 1)
     ) {
-      const key = formatDate(d);
+      const key = toISODate(d);
       if (!marked[key]) {
         marked[key] = { selected: true, selectedColor: "#FFE3F0" };
       }
@@ -302,97 +211,6 @@ const SYMPTOMS = [
   "Tatlı isteği",
 ];
 
-function getCyclePhaseInfo(
-  logs: PeriodLog[],
-  settings: PeriodSettings | null
-): CyclePhaseInfo {
-  if (!settings || logs.length === 0) {
-    return {
-      key: "unknown",
-      title: "Faz hesaplanamıyor",
-      description:
-        "Son regl başlangıç tarihin ve döngü süren netleştiğinde faz bilgisi burada görünecek.",
-      suggestion:
-        "Regl başlangıcını kaydedip döngü süreni girdikten sonra bu alan çok daha anlamlı çalışmaya başlayacak.",
-    };
-  }
-
-  const lastStartStr = logs[logs.length - 1].startDate;
-  const lastStartDate = new Date(lastStartStr);
-  const today = new Date();
-
-  const diffMs = today.getTime() - lastStartDate.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  const cycleLen = settings.averageCycleLength;
-  const periodLen = settings.periodLength;
-  const mid = Math.round(cycleLen / 2);
-
-  if (diffDays < 0 || diffDays > cycleLen + 10) {
-    return {
-      key: "unknown",
-      title: "Faz dışı aralık",
-      description:
-        "Son regl başlangıç tarihin ile bugünün arasındaki fark beklenen döngü süresinin dışında görünüyor.",
-      suggestion:
-        "Son regl başlangıcını güncellersen bu alan güncel döngüne göre yeni fazı gösterecek.",
-    };
-  }
-
-  if (diffDays >= 0 && diffDays < periodLen) {
-    return {
-      key: "menstruation",
-      title: "Regl Fazı",
-      description:
-        "Bedenin yenilenme ve arınma sürecinde. Enerjinin dalgalanması son derece normal.",
-      suggestion:
-        "Bugün kendine biraz daha nazik davranmak, tempoyu düşürmek ve dinlenmeye alan açmak iyi gelebilir.",
-    };
-  }
-
-  if (diffDays >= mid - 2 && diffDays <= mid + 2) {
-    return {
-      key: "ovulation",
-      title: "Ovülasyon Fazı",
-      description:
-        "Enerjinin ve öz güveninin arttığı, sosyal olarak daha dışa dönük hissetmeye eğilimli olabileceğin bir fazdasın.",
-      suggestion:
-        "Görüşmeler, yaratıcı projeler, kendini ifade etmen gereken işler için bu dönemi değerlendirebilirsin.",
-    };
-  }
-
-  if (diffDays >= periodLen && diffDays < mid - 2) {
-    return {
-      key: "follicular",
-      title: "Folikül Fazı",
-      description:
-        "Regl sonrası enerjinin yavaş yavaş yükseldiği, zihinsel olarak daha açık ve meraklı hissettiğin bir dönemdesin.",
-      suggestion:
-        "Yeni şeyler öğrenmek, plan yapmak ve hafif tempolu egzersizlere başlamak için bu faz oldukça destekleyici.",
-    };
-  }
-
-  if (diffDays > mid + 2 && diffDays < cycleLen) {
-    return {
-      key: "luteal",
-      title: "Luteal faz",
-      description:
-        "Bedenin yavaş yavaş içe dönmeye hazırlanıyor. Duygular hassaslaşabilir, enerji iniş çıkışları yaşayabilirsin.",
-      suggestion:
-        "Bu dönemde yapılacaklar listeni sadeleştirmek, sana iyi gelen rutinlere ağırlık vermek ve kendine karşı anlayışlı olmak çok değerli.",
-    };
-  }
-
-  return {
-    key: "unknown",
-    title: "Geçiş dönemi",
-    description:
-      "Bugün için net bir faz tanımı yapamıyoruz, ama bu da döngünün doğal dalgalanmalarının bir parçası.",
-    suggestion:
-      "Bedeninin bugün nasıl hissettiğini gözlemlemek ve buna göre küçük ayarlamalar yapmak en sağlıklı rehber olacaktır.",
-  };
-}
-
 function PeriodBannerAd() {
   return (
     <View style={styles.adContainer}>
@@ -402,6 +220,7 @@ function PeriodBannerAd() {
 }
 
 export default function PeriodScreen() {
+  // ✅ 1) TÜM STATE’LER EN ÜSTTE (hook sırası garanti)
   const [settings, setSettings] = useState<PeriodSettings | null>(null);
   const [logs, setLogs] = useState<PeriodLog[]>([]);
   const [moodData, setMoodData] = useState<MoodData>({});
@@ -411,21 +230,122 @@ export default function PeriodScreen() {
   const [inputAverageCycle, setInputAverageCycle] = useState("28");
   const [inputPeriodLength, setInputPeriodLength] = useState("5");
 
-  const todayKey = formatDate(new Date());
+  // 🧪 Debug panel state
+  const [debugVisible, setDebugVisible] = useState(false);
+  const [debugDump, setDebugDump] = useState<string>("");
+
+  const [titleTapCount, setTitleTapCount] = useState(0);
+  const [titleTapTimer, setTitleTapTimer] = useState<any>(null);
+
+  const todayKey = toISODate(new Date());
+  const openUrl = async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert("Hata", "Bağlantı açılamadı.");
+    }
+  };
   const todayMood = moodData[todayKey]?.mood;
   const todaySymptoms = moodData[todayKey]?.symptoms ?? [];
 
-  // ✅ Minimal ek: settings storage garanti eden helper
+  const buildDebugDump = async () => {
+    try {
+      const pairs = await Promise.all(
+        PERIOD_DEBUG_KEYS.map(async (k) => {
+          const v = await AsyncStorage.getItem(k);
+          return [k, v] as const;
+        })
+      );
+
+      const existing = pairs.filter(([, v]) => !!v).map(([k]) => k);
+
+      const settingsRaw =
+        pairs.find(([k]) => k === PERIOD_SETTINGS_KEY)?.[1] ?? null;
+      const logsRaw = pairs.find(([k]) => k === PERIOD_LOGS_KEY)?.[1] ?? null;
+
+      const settingsParsed = safeJsonParse(settingsRaw);
+      const logsParsed = safeJsonParse(logsRaw);
+
+      const phase = getCyclePhaseInfo(logs, settings);
+      const next = getNextPeriodStart(logs, settings);
+      const ovu = getOvulationInfo(logs, settings);
+
+      const payload = {
+        now: new Date().toISOString(),
+        keysFoundNonEmpty: existing,
+        currentKeysExpected: {
+          settingsKey: PERIOD_SETTINGS_KEY,
+          logsKey: PERIOD_LOGS_KEY,
+        },
+        rawAtExpectedKeys: {
+          settingsRaw,
+          logsRaw,
+        },
+        parsedAtExpectedKeys: {
+          settingsParsed,
+          logsParsed,
+        },
+        inMemoryState: {
+          settings,
+          logs,
+          inputLastStartDate,
+          inputAverageCycle,
+          inputPeriodLength,
+        },
+        computed: {
+          phase,
+          nextPeriodIso: next,
+          nextPeriodTR: next ? formatDateTRFromISO(next) : null,
+          ovulationInfo: ovu,
+        },
+        allKeysRaw: pairs.reduce((acc, [k, v]) => {
+          acc[k] = v;
+          return acc;
+        }, {} as Record<string, string | null>),
+      };
+
+      setDebugDump(JSON.stringify(payload, null, 2));
+    } catch (e: any) {
+      setDebugDump(
+        JSON.stringify(
+          { error: e?.message ?? String(e), now: new Date().toISOString() },
+          null,
+          2
+        )
+      );
+    }
+  };
+
+  const handleTitleSecretTap = () => {
+    if (titleTapTimer) clearTimeout(titleTapTimer);
+
+    const nextCount = titleTapCount + 1;
+    setTitleTapCount(nextCount);
+
+    const timer = setTimeout(() => {
+      setTitleTapCount(0);
+    }, 1200);
+
+    setTitleTapTimer(timer);
+
+    if (nextCount >= 7) {
+      setTitleTapCount(0);
+      clearTimeout(timer);
+      setTitleTapTimer(null);
+
+      void buildDebugDump();
+      setDebugVisible(true);
+    }
+  };
+
+  // ✅ settings storage garanti eden helper
   const ensureSettingsStored = async (): Promise<PeriodSettings> => {
-    // 1) state varsa onu kullan
     if (settings) return settings;
 
-    // 2) storage'dan dene
     try {
       const existing = await AsyncStorage.getItem(PERIOD_SETTINGS_KEY);
       if (existing) {
         const parsed: PeriodSettings = JSON.parse(existing);
-        // state’i de toparla ki UI tutarlı kalsın
         setSettings(parsed);
         setInputAverageCycle(String(parsed.averageCycleLength));
         setInputPeriodLength(String(parsed.periodLength));
@@ -435,7 +355,6 @@ export default function PeriodScreen() {
       // ignore
     }
 
-    // 3) yoksa default’u hem state’e hem storage’a yaz
     setSettings(DEFAULT_SETTINGS);
     setInputAverageCycle(String(DEFAULT_SETTINGS.averageCycleLength));
     setInputPeriodLength(String(DEFAULT_SETTINGS.periodLength));
@@ -464,7 +383,6 @@ export default function PeriodScreen() {
           setSettings(DEFAULT_SETTINGS);
           setInputAverageCycle(String(DEFAULT_SETTINGS.averageCycleLength));
           setInputPeriodLength(String(DEFAULT_SETTINGS.periodLength));
-          // ✅ settings key her zaman var olsun
           await AsyncStorage.setItem(
             PERIOD_SETTINGS_KEY,
             JSON.stringify(DEFAULT_SETTINGS)
@@ -493,7 +411,6 @@ export default function PeriodScreen() {
     };
 
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const nextPeriod = useMemo(
@@ -570,14 +487,15 @@ export default function PeriodScreen() {
       effectiveLogs = logsArr;
     }
 
-    await scheduleCycleNotifications(effectiveLogs, newSettings, { silent: true });
+    await scheduleCycleNotifications(effectiveLogs, newSettings, {
+      silent: true,
+    });
     Alert.alert("Kaydedildi", "Döngü ayarların güncellendi.");
   };
 
   const handleTodayStarted = async () => {
-    const todayIso = formatDate(new Date());
+    const todayIso = toISODate(new Date());
 
-    // ✅ minimal ek: settings key garanti
     const effSettings = await ensureSettingsStored();
 
     const newLogs: PeriodLog[] = [{ startDate: todayIso }];
@@ -605,7 +523,6 @@ export default function PeriodScreen() {
         return;
       }
 
-      // ✅ minimal ek: settings key garanti
       const effSettings = await ensureSettingsStored();
 
       setInputLastStartDate(formatDateTRFromISO(pickedIso));
@@ -651,7 +568,7 @@ export default function PeriodScreen() {
         return;
       }
 
-      const nextDate = new Date(next);
+      const nextDate = fromISODate(next);
       const now = new Date();
 
       if (nextDate <= now) {
@@ -695,7 +612,7 @@ export default function PeriodScreen() {
         const beforeId = await Notifications.scheduleNotificationAsync({
           content: {
             title: "Reglin yaklaşıyor 🌸",
-            body: "Regline 2 gün kaldı. Yanına tampon veya ped almayı ihmal etme.",
+            body: "Regline 2 gün kaldı. Hazırlıklı olmak iyi gelebilir.",
             sound: false,
             ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
           },
@@ -798,8 +715,99 @@ export default function PeriodScreen() {
       <Stack.Screen options={{ title: "Regl Takvimi" }} />
 
       <View style={styles.page}>
+        {/* 🧪 DEBUG MODAL */}
+        <Modal
+          visible={debugVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setDebugVisible(false)}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(0,0,0,0.45)",
+              padding: 16,
+              justifyContent: "center",
+            }}
+          >
+            <View
+              style={{
+                backgroundColor: "#fff",
+                borderRadius: 12,
+                padding: 12,
+                maxHeight: "85%",
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "800",
+                  color: "#4A2E2A",
+                  marginBottom: 8,
+                }}
+              >
+                🧪 Period Debug Panel
+              </Text>
+
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
+                <Pressable
+                  style={{
+                    flex: 1,
+                    paddingVertical: 10,
+                    borderRadius: 10,
+                    backgroundColor: "#B0756F",
+                    alignItems: "center",
+                  }}
+                  onPress={() => buildDebugDump()}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "800" }}>
+                    Yenile
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={{
+                    flex: 1,
+                    paddingVertical: 10,
+                    borderRadius: 10,
+                    backgroundColor: "#444",
+                    alignItems: "center",
+                  }}
+                  onPress={() => setDebugVisible(false)}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "800" }}>
+                    Kapat
+                  </Text>
+                </Pressable>
+              </View>
+
+              <ScrollView
+                style={{
+                  borderWidth: 1,
+                  borderColor: "#F3B6B3",
+                  borderRadius: 10,
+                  padding: 10,
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+                    fontSize: 12,
+                    color: "#2b1a17",
+                  }}
+                >
+                  {debugDump || "Debug verisi yok."}
+                </Text>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
         <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.pageTitle}>Regl Takvimi</Text>
+          <Pressable onPress={handleTitleSecretTap}>
+            <Text style={styles.pageTitle}>Regl Takvimi</Text>
+          </Pressable>
+
           <Text style={styles.pageSubtitle}>
             Regl başlangıçlarını, modunu ve semptomlarını takip ederek bedeninle
             daha uyumlu bir ritim yakalayabilirsin.
@@ -897,6 +905,7 @@ export default function PeriodScreen() {
           <Pressable style={styles.primaryButton} onPress={handleTodayStarted}>
             <Text style={styles.primaryButtonText}>Bugün Regl Başladı</Text>
           </Pressable>
+
           <Text style={styles.helperText}>
             Reglinin ilk gününde bu butona dokunarak döngünü güncellersin.
           </Text>
@@ -907,6 +916,44 @@ export default function PeriodScreen() {
             <Text style={styles.phaseText}>{phaseInfo.description}</Text>
             <Text style={styles.phaseSuggestion}>{phaseInfo.suggestion}</Text>
           </View>
+
+          <View style={styles.card}>
+  <Text style={styles.cardTitle}>Bilgilendirme & Kaynaklar</Text>
+
+  <Text style={styles.summaryNote}>
+    Bu sayfadaki döngü fazı, ovülasyon ve verimli günler hesaplamaları genel
+    bilgilendirme amaçlıdır ve yalnızca tahmini sonuçlar üretir. Tıbbi
+    teşhis/takip yerine geçmez. Doğum kontrol yöntemi olarak kullanılmamalıdır.
+    Düzensizlik, şiddetli ağrı veya endişe durumunda bir uzmana danışmanı
+    öneririz.
+  </Text>
+
+  <Text style={[styles.inputLabel, { marginTop: 10 }]}>Kaynaklar</Text>
+
+  <Pressable
+    onPress={() =>
+      openUrl(
+        "https://www.acog.org/womens-health/faqs/your-menstrual-cycle"
+      )
+    }
+  >
+    <Text style={styles.sourceLink}>• ACOG – Menstrual Cycle</Text>
+  </Pressable>
+
+  <Pressable
+    onPress={() =>
+      openUrl(
+        "https://www.mayoclinic.org/healthy-lifestyle/womens-health/in-depth/menstrual-cycle/art-20047186"
+      )
+    }
+  >
+    <Text style={styles.sourceLink}>• Mayo Clinic – Menstrual cycle basics</Text>
+  </Pressable>
+
+  <Pressable onPress={() => openUrl("https://www.nhs.uk/conditions/periods/")}>
+    <Text style={styles.sourceLink}>• NHS – Periods</Text>
+  </Pressable>
+</View>
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Bugünkü Modun & Semptomların</Text>
@@ -948,6 +995,7 @@ export default function PeriodScreen() {
             <Text style={[styles.inputLabel, { marginTop: 10 }]}>
               Bugün bedeninde neler var?
             </Text>
+
             <View style={styles.symptomContainer}>
               {SYMPTOMS.map((symptom) => {
                 const selected = todaySymptoms.includes(symptom);
@@ -994,7 +1042,9 @@ export default function PeriodScreen() {
               onChangeText={setInputAverageCycle}
             />
 
-            <Text style={styles.inputLabel}>Reglin ortalama kaç gün sürüyor?</Text>
+            <Text style={styles.inputLabel}>
+              Reglin ortalama kaç gün sürüyor?
+            </Text>
             <TextInput
               style={styles.input}
               placeholder="Örn: 5"
@@ -1073,9 +1123,19 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
 
-  helperText: { fontSize: 12, color: "#887473", marginTop: 4, marginBottom: 8 },
+  helperText: {
+    fontSize: 12,
+    color: "#887473",
+    marginTop: 4,
+    marginBottom: 8,
+  },
 
-  inputLabel: { fontSize: 13, color: "#5A3A35", marginTop: 8, marginBottom: 4 },
+  inputLabel: {
+    fontSize: 13,
+    color: "#5A3A35",
+    marginTop: 8,
+    marginBottom: 4,
+  },
   input: {
     borderWidth: 1,
     borderColor: "#F3B6B3",
@@ -1140,5 +1200,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingBottom: 8,
     alignItems: "center",
+  },
+
+    sourceLink: {
+    color: "#B0756F",
+    fontWeight: "700",
+    marginBottom: 6,
   },
 });

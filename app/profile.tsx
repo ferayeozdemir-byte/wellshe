@@ -8,7 +8,6 @@ import React, { useEffect, useState } from "react";
 import {
   Alert,
   Linking,
-  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -16,7 +15,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import AdBanner from "../components/AdBanner";
 
@@ -197,6 +196,7 @@ export default function ProfileScreen() {
       <View style={styles.page}>
         <ScrollView contentContainerStyle={styles.container}>
           <Text style={styles.title}>Profilim</Text>
+
           <Text style={styles.subtitle}>
             Buradan ismini güncelleyebilir, istersen e-posta adresini
             ekleyebilirsin.
@@ -352,21 +352,6 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
 
-          {/* Küçük not: store build için plugin şart */}
-          {Platform.OS === "android" && (
-            <View style={{ marginTop: 10 }}>
-              <Text
-                style={{
-                  fontSize: 11,
-                  color: "#8a6f6a",
-                  textAlign: "center",
-                }}
-              >
-                Not: Play Store build’de özel uygulama linkleri için Android
-                queries plugin’i gerekir.
-              </Text>
-            </View>
-          )}
         </ScrollView>
 
         {/* 🔹 Alt bant reklam */}
