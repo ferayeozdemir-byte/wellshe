@@ -933,11 +933,11 @@ export default function PeriodScreen() {
   <Pressable
     onPress={() =>
       openUrl(
-        "https://www.acog.org/womens-health/faqs/your-menstrual-cycle"
+        "https://my.clevelandclinic.org/health/articles/10132-menstrual-cycle"
       )
     }
   >
-    <Text style={styles.sourceLink}>• ACOG – Menstrual Cycle</Text>
+    <Text style={styles.sourceLink}>• Cleveland Clinic – Menstrual Cycle</Text>
   </Pressable>
 
   <Pressable
