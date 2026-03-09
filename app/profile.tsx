@@ -40,7 +40,7 @@ const LINKEDIN_APP = "linkedin://company/wellshe";
 const PLAY_STORE_URL =
   "https://play.google.com/store/apps/details?id=com.feraye.wellshe";
 const APP_STORE_URL =
-  "https://apps.apple.com/app/id1234567890"; // hazır olunca gerçek ID ile değiş
+  "https://apps.apple.com/app/id6759724666"; // hazır olunca gerçek ID ile değiş
 
 // ✅ Genel güvenli açma (social için alert baskılayabilmek üzere güncellendi)
 async function openExternal(
