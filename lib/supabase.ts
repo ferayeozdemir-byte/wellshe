@@ -146,3 +146,36 @@ export async function callEdgeFunction<T>(
     return text as unknown as T;
   }
 }
+
+export async function sbRpc<T>(
+  functionName: string,
+  body: Record<string, any> = {}
+): Promise<T> {
+  assertEnv();
+
+  const url = `${SUPABASE_URL}/rest/v1/rpc/${functionName}`;
+
+  if (__DEV__) console.log("[SB] RPC", functionName, body);
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      ...baseHeaders(),
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const text = await res.text();
+
+  if (!res.ok) {
+    console.error("[SB] RPC error", functionName, res.status, text);
+    throw new Error(`Supabase RPC error ${res.status}: ${text}`);
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return text as unknown as T;
+  }
+}

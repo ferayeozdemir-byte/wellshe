@@ -42,13 +42,13 @@ export default function TabLayout() {
               <Text style={styles.modalTitle}>Gizlilik Bilgilendirmesi</Text>
 
               <Text style={styles.modalText}>
-                WellShe, âdet döngüsü, su takibi ve kalori hesaplama amacıyla
-                girilen yaş, boy ve kilo verilerini yalnızca cihazınızda saklar.
+                WellShe; âdet döngüsü, su takibi ve kalori hesaplama amacıyla
+                girilen yaş, boy ve kilo verilerini varsayılan olarak yalnızca cihazınızda saklar.
               </Text>
 
               <Text style={styles.modalText}>
                 Reklam gösterebilmek ve uygulama hatalarını tespit edebilmek
-                için Google AdMob ve Sentry servisleri kullanılmaktadır.
+                için Google AdMob, Meta SDK ve Sentry servisleri kullanılmaktadır.
               </Text>
 
               <Text style={styles.modalText}>

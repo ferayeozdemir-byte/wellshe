@@ -1,8 +1,9 @@
 // app/article/[id].tsx
 
+import { trackEvent } from "@/lib/analytics";
 import { Audio } from "expo-av";
 import { Stack, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -14,7 +15,10 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import RenderHTML from "react-native-render-html";
+import RenderHTML, {
+  HTMLContentModel,
+  HTMLElementModel,
+} from "react-native-render-html";
 import { publicStorageUrl, sbGetMany } from "../../lib/supabase";
 
 // 🔹 AdBanner (web-safe wrapper)
@@ -185,6 +189,144 @@ function TextBlock({ text }: { text: string }) {
   );
 }
 
+const customHTMLElementModels = {
+  "wellshe-audio": HTMLElementModel.fromCustomModel({
+    tagName: "wellshe-audio",
+    contentModel: HTMLContentModel.block,
+  }),
+};
+
+function InlineAudioBlock({
+  assetId,
+}: {
+  assetId: string;
+}) {
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
+  const [loadingUrl, setLoadingUrl] = useState(true);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAudioUrl() {
+      try {
+        setLoadingUrl(true);
+
+        const rows = await sbGetMany<AssetRow>(
+          `/assets?select=bucket,path,content_type&id=eq.${enc(assetId)}&limit=1`
+        );
+
+        const asset = rows?.[0];
+        if (!cancelled && asset?.bucket && asset?.path) {
+          setResolvedUrl(publicStorageUrl(asset.bucket, asset.path));
+        }
+      } catch {
+        if (!cancelled) setResolvedUrl(null);
+      } finally {
+        if (!cancelled) setLoadingUrl(false);
+      }
+    }
+
+    loadAudioUrl();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assetId]);
+
+  useEffect(() => {
+    return () => {
+      if (sound) {
+        sound.unloadAsync().catch(() => {});
+      }
+    };
+  }, [sound]);
+
+  async function toggleInlineAudio() {
+    if (!resolvedUrl) return;
+
+    try {
+      setAudioLoading(true);
+
+      if (!sound) {
+        const { sound: newSound } = await Audio.Sound.createAsync(
+          { uri: resolvedUrl },
+          { shouldPlay: true }
+        );
+
+        newSound.setOnPlaybackStatusUpdate((status) => {
+          if (!status.isLoaded) return;
+          setIsPlaying(status.isPlaying);
+
+          if (status.didJustFinish) {
+            setIsPlaying(false);
+          }
+        });
+
+        setSound(newSound);
+        setIsPlaying(true);
+        return;
+      }
+
+      if (isPlaying) {
+        await sound.pauseAsync();
+        setIsPlaying(false);
+      } else {
+        await sound.playAsync();
+        setIsPlaying(true);
+      }
+    } catch {
+      setIsPlaying(false);
+    } finally {
+      setAudioLoading(false);
+    }
+  }
+
+  if (loadingUrl) {
+    return (
+      <View style={styles.inlineAudioBox}>
+        <Text style={styles.inlineAudioTitle}>🎧 Bu bölümü dinle</Text>
+        <Text style={styles.inlineAudioHint}>Ses yükleniyor…</Text>
+      </View>
+    );
+  }
+
+  if (!resolvedUrl) {
+    return (
+      <View style={styles.inlineAudioBox}>
+        <Text style={styles.inlineAudioTitle}>🎧 Bu bölümü dinle</Text>
+        <Text style={styles.inlineAudioHint}>Ses dosyası bulunamadı.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.inlineAudioBox}>
+      <Text style={styles.inlineAudioTitle}>🎧 Bu bölümü dinle</Text>
+
+      <Pressable
+        onPress={toggleInlineAudio}
+        style={({ pressed }) => [
+          styles.inlineAudioBtn,
+          pressed ? { opacity: 0.9 } : null,
+          audioLoading ? { opacity: 0.7 } : null,
+        ]}
+        disabled={audioLoading}
+      >
+        <Text style={styles.inlineAudioBtnText}>
+          {audioLoading
+            ? "Yükleniyor…"
+            : isPlaying
+            ? "Duraklat"
+            : "Dinle"}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 // 🔹 İçerik ekranının altında kullanılacak banner
 function ArticleBannerAd() {
   return (
@@ -234,6 +376,8 @@ export default function ArticleScreen() {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
 
   const [localHit, setLocalHit] = useState<any | null>(null);
+
+  const didTrackContentOpenRef = useRef(false);
 
   const lang = "tr";
 
@@ -513,6 +657,30 @@ export default function ArticleScreen() {
     };
   }, [routeId, articleIdParam, initialTitle, initialSummary, initialCoverUrl]);
 
+  useEffect(() => {
+  if (didTrackContentOpenRef.current) return;
+
+  const trackedArticleId =
+    article?.id ??
+    articleIdParam ??
+    (typeof routeId === "string" ? routeId : null);
+
+  const trackedArticleTitle =
+    tr?.title ??
+    (typeof initialTitle === "string" ? initialTitle : null);
+
+  if (!trackedArticleId && !trackedArticleTitle) return;
+
+  didTrackContentOpenRef.current = true;
+
+  void trackEvent({
+    event_name: "content_open",
+    screen_name: "article",
+    article_id: trackedArticleId ? String(trackedArticleId) : null,
+    article_title: trackedArticleTitle ? String(trackedArticleTitle) : null,
+  });
+}, [article?.id, tr?.title, articleIdParam, routeId, initialTitle]);
+
   const hasHtml =
   !!tr?.content_html && tr.content_html.trim().length > 0;
 
@@ -672,37 +840,55 @@ if (err || (!article && !localHit && !hasInitialPayload)) {
           )}
 
           {hasHtml && (
-            <RenderHTML
-              contentWidth={width - 32}
-              source={htmlSource}
-              baseStyle={styles.body}
-              tagsStyles={{
-                h2: styles.sectionTitle,
-                h3: styles.sectionTitle,
-                p: styles.body,
-                li: styles.body,
-                strong: { fontWeight: "800" },
-                b: { fontWeight: "800" },
-                em: { fontStyle: "italic" },
-                i: { fontStyle: "italic" },
-                a: {
-                  color: "#B0756F",
-                  textDecorationLine: "underline",
-                  fontWeight: "600",
-                },
-              }}
-              renderersProps={{
-                a: {
-                  onPress: (_event: any, href: string) => {
-                    if (!href) return;
-                    Linking.openURL(href).catch((e) => {
-                      console.log("Link açılamadı:", e);
-                    });
-                  },
-                },
-              }}
-            />
-          )}
+  <RenderHTML
+    contentWidth={width - 32}
+    source={htmlSource}
+    baseStyle={styles.body}
+    customHTMLElementModels={customHTMLElementModels}
+    tagsStyles={{
+      h2: styles.htmlH2,
+      h3: styles.htmlH3,
+      p: styles.htmlParagraph,
+      li: styles.htmlListItem,
+      ul: styles.htmlList,
+      ol: styles.htmlList,
+      strong: { fontWeight: "800" },
+      b: { fontWeight: "800" },
+      em: { fontStyle: "italic" },
+      i: { fontStyle: "italic" },
+      a: {
+        color: "#B0756F",
+        textDecorationLine: "underline",
+        fontWeight: "600",
+      },
+      "wellshe-audio": {
+        display: "flex",
+      },
+    }}
+    renderers={{
+      "wellshe-audio": ({ tnode }: any) => {
+        const assetId =
+          tnode?.attributes?.["data-asset-id"] ??
+          tnode?.domNode?.attribs?.["data-asset-id"] ??
+          null;
+
+        if (!assetId) return null;
+
+        return <InlineAudioBlock assetId={String(assetId)} />;
+      },
+    }}
+    renderersProps={{
+      a: {
+        onPress: (_event: any, href: string) => {
+          if (!href) return;
+          Linking.openURL(href).catch((e) => {
+            console.log("Link açılamadı:", e);
+          });
+        },
+      },
+    }}
+  />
+)}
         </ScrollView>
 
         <ArticleBannerAd />
@@ -779,9 +965,80 @@ const styles = StyleSheet.create({
     color: "#4A2F33",
   },
 
+    inlineAudioBox: {
+    marginTop: 10,
+    marginBottom: 18,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: "#FBEDEE",
+    borderWidth: 1,
+    borderColor: "#F3C6CF",
+  },
+
+  inlineAudioTitle: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "600",
+    color: "#4A3B3B",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+
+  inlineAudioHint: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#6B5A5A",
+    textAlign: "center",
+  },
+
+  inlineAudioBtn: {
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: "#921f3466",
+    alignItems: "center",
+  },
+
+  inlineAudioBtnText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#4A2F33",
+  },
+
   adContainer: {
     paddingHorizontal: 8,
     paddingBottom: 8,
     alignItems: "center",
+  },
+
+    htmlParagraph: {
+    fontSize: 15,
+    lineHeight: 28,
+    marginBottom: 16,
+  },
+
+  htmlListItem: {
+    fontSize: 15,
+    lineHeight: 26,
+    marginBottom: 8,
+  },
+
+  htmlList: {
+    marginBottom: 16,
+  },
+
+  htmlH2: {
+    fontSize: 20,
+    lineHeight: 30,
+    fontWeight: "700",
+    marginTop: 24,
+    marginBottom: 12,
+  },
+
+  htmlH3: {
+    fontSize: 18,
+    lineHeight: 28,
+    fontWeight: "600",
+    marginTop: 20,
+    marginBottom: 10,
   },
 });

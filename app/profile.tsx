@@ -1,13 +1,12 @@
-// app/profile.tsx
-
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Image,
   Linking,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -15,34 +14,30 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import AdBanner from "../components/AdBanner";
 
-const EMAIL_KEY = "userEmail";
 const NAME_KEY = "userName";
 
-
-// ✅ Web linkleri
 const INSTAGRAM_WEB =
   "https://www.instagram.com/wellshe_1?igsh=MTNwbmM1bjgwODRiZw==";
 const TIKTOK_WEB = "https://www.tiktok.com/@well_she?lang=tr-TR";
 const LINKEDIN_WEB =
   "https://www.linkedin.com/company/wellshe/?viewAsMember=true";
 
-// ✅ App scheme (uygulama kuruluysa buraya gider, değilse web'e düşer)
 const INSTAGRAM_APP = "instagram://user?username=wellshe_1";
 const TIKTOK_APP = "tiktok://user?username=well_she";
-// LinkedIn deep link her cihazda stabil değil; yine de deneyip web'e düşüreceğiz:
 const LINKEDIN_APP = "linkedin://company/wellshe";
 
-// Paket adına göre mağaza linkleri
 const PLAY_STORE_URL =
   "https://play.google.com/store/apps/details?id=com.feraye.wellshe";
-const APP_STORE_URL =
-  "https://apps.apple.com/app/id6759724666"; // hazır olunca gerçek ID ile değiş
 
-// ✅ Genel güvenli açma (social için alert baskılayabilmek üzere güncellendi)
+const APP_STORE_WEB_URL =
+  "https://apps.apple.com/us/app/wellshe/id6759724666";
+const APP_STORE_IOS_URL =
+  "itms-apps://apps.apple.com/us/app/wellshe/id6759724666";
+
 async function openExternal(
   url: string,
   fallbackMessage: string,
@@ -54,15 +49,14 @@ async function openExternal(
     const isHttp =
       url.startsWith("http://") ||
       url.startsWith("https://") ||
-      url.startsWith("mailto:");
+      url.startsWith("mailto:") ||
+      url.startsWith("itms-apps://");
 
-    // 🌐 Web & mailto linklerinde canOpenURL kontrolü yapma, direkt aç
     if (isHttp) {
       await Linking.openURL(url);
       return true;
     }
 
-    // 📱 Özel app scheme'leri için önce canOpenURL kontrolü
     const can = await Linking.canOpenURL(url);
     if (!can) {
       if (!suppressAlert && fallbackMessage) {
@@ -82,21 +76,14 @@ async function openExternal(
   }
 }
 
-// ✅ Sosyal medya: önce app scheme (sessiz), olmazsa web (alert sadece web de açılmazsa)
 async function openSocial(appUrl: string, webUrl: string, label: string) {
-  // 1) Uygulama linkini dene ama hata verirse uyarı gösterme
   const openedApp = await openExternal(appUrl, "", { suppressAlert: true });
 
-  // 2) App açılamadıysa web linkine düş
   if (!openedApp) {
-    await openExternal(
-      webUrl,
-      `${label} bağlantısını şu an açamıyoruz.`
-    );
+    await openExternal(webUrl, `${label} bağlantısını şu an açamıyoruz.`);
   }
 }
 
-// 🔹 Profil ekranı için banner wrapper (diğer sayfalarla aynı mimari)
 function ProfileBannerAd() {
   return (
     <View style={styles.adContainer}>
@@ -105,21 +92,34 @@ function ProfileBannerAd() {
   );
 }
 
+function DecorativeLeaf({
+  style,
+  rotate = "0deg",
+}: {
+  style?: any;
+  rotate?: string;
+}) {
+  return (
+    <View style={[styles.leafBranch, style, { transform: [{ rotate }] }]}>
+      <View style={[styles.leafItem, styles.leafOne]} />
+      <View style={[styles.leafItem, styles.leafTwo]} />
+      <View style={[styles.leafItem, styles.leafThree]} />
+      <View style={[styles.leafItem, styles.leafFour]} />
+    </View>
+  );
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
 
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     const loadProfile = async () => {
       try {
         const storedName = await SecureStore.getItemAsync(NAME_KEY);
-        const storedEmail = await AsyncStorage.getItem(EMAIL_KEY);
-
         if (storedName) setName(storedName);
-        if (storedEmail) setEmail(storedEmail);
       } catch (e) {
         console.log("Profil yüklenirken hata:", e);
       }
@@ -130,31 +130,16 @@ export default function ProfileScreen() {
 
   const handleSave = async () => {
     const trimmedName = name.trim();
-    const trimmedEmail = email.trim();
 
     if (!trimmedName) {
       Alert.alert("Uyarı", "Lütfen adını boş bırakma.");
       return;
     }
 
-    if (trimmedEmail && !trimmedEmail.includes("@")) {
-      Alert.alert("Uyarı", "Lütfen geçerli bir e-posta adresi gir.");
-      return;
-    }
-
     try {
       setIsSaving(true);
       await SecureStore.setItemAsync(NAME_KEY, trimmedName);
-
-      if (trimmedEmail) {
-        await AsyncStorage.setItem(EMAIL_KEY, trimmedEmail);
-      } else {
-        await AsyncStorage.removeItem(EMAIL_KEY);
-      }
-
-      Alert.alert("Kaydedildi", "Profil bilgilerin güncellendi. 🌸", [
-        { text: "Tamam", onPress: () => router.back() },
-      ]);
+      Alert.alert("Kaydedildi", "Profil bilgilerin güncellendi. 🌸");
     } catch (e) {
       console.log("Profil kaydedilirken hata:", e);
       Alert.alert("Hata", "Bilgiler kaydedilirken bir sorun oluştu.");
@@ -163,12 +148,10 @@ export default function ProfileScreen() {
     }
   };
 
-  // 🔗 Sosyal medya aksiyonları
   const handleInstagram = () =>
     openSocial(INSTAGRAM_APP, INSTAGRAM_WEB, "Instagram");
 
-  const handleTikTok = () =>
-    openSocial(TIKTOK_APP, TIKTOK_WEB, "TikTok");
+  const handleTikTok = () => openSocial(TIKTOK_APP, TIKTOK_WEB, "TikTok");
 
   const handleLinkedIn = () =>
     openSocial(LINKEDIN_APP, LINKEDIN_WEB, "LinkedIn");
@@ -176,10 +159,26 @@ export default function ProfileScreen() {
   const handleRateOnPlayStore = () =>
     openExternal(PLAY_STORE_URL, "Google Play bağlantısını şu an açamıyoruz.");
 
-  const handleRateOnAppStore = () =>
-    openExternal(APP_STORE_URL, "App Store bağlantısını şu an açamıyoruz.");
+  const handleRateOnAppStore = async () => {
+    try {
+      if (Platform.OS === "ios") {
+        await Linking.openURL(APP_STORE_IOS_URL);
+        return;
+      }
 
-  // 📧 Mail gönder
+      await Linking.openURL(APP_STORE_WEB_URL);
+    } catch (error) {
+      try {
+        await Linking.openURL(APP_STORE_WEB_URL);
+      } catch {
+        Alert.alert(
+          "Açılamadı",
+          "App Store bağlantısını şu an açamıyoruz."
+        );
+      }
+    }
+  };
+
   const handleSendMail = async () => {
     const subject = "WellShe Hakkında Geri Bildirim";
     const body =
@@ -195,135 +194,223 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.page}>
-        <ScrollView contentContainerStyle={styles.container}>
-          <Text style={styles.title}>Profilim</Text>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.bgTopRightBlob} />
+          <View style={styles.bgTopRightBlob2} />
+          <View style={styles.heroCurve} />
 
-          <Text style={styles.subtitle}>
-            Buradan ismini güncelleyebilir, istersen e-posta adresini
-            ekleyebilirsin.
-          </Text>
+          <DecorativeLeaf style={styles.leftLeaf} rotate="-12deg" />
+          <DecorativeLeaf style={styles.rightLeafTop} rotate="16deg" />
+          <DecorativeLeaf style={styles.rightLeafBottom} rotate="18deg" />
 
-          {/* ✅ PROFİL KARTI */}
-          <View style={styles.profileCard}>
-            <Text style={styles.profileCardTitle}>Bilgilerim</Text>
+          <View style={styles.topBar}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.back()}
+            >
+              <Ionicons name="arrow-back" size={22} color="#6A433F" />
+            </TouchableOpacity>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>Adın</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Adını yaz"
-                placeholderTextColor="#b88c86"
-                value={name}
-                onChangeText={setName}
+            <Text style={styles.screenTitle}>Profil</Text>
+
+            <View style={styles.topSpacer} />
+          </View>
+
+          <View style={styles.hero}>
+            <View style={styles.heroBadgeOuter}>
+              <Image
+                source={require("../assets/images/profile/profile-badge.png")}
+                style={styles.heroBadgeImage}
+                resizeMode="contain"
               />
             </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>E-posta (isteğe bağlı)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="ornek@mail.com"
-                placeholderTextColor="#b88c86"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={email}
-                onChangeText={setEmail}
-              />
+            <View style={styles.sparkleWrap}>
+              <Ionicons name="sparkles-outline" size={14} color="#E5B0A9" />
+              <Ionicons name="sparkles" size={10} color="#D99C97" />
+              <Ionicons name="sparkles-outline" size={14} color="#E5B0A9" />
+            </View>
+
+            <Text style={styles.heroText}>
+              İyi hissetmek, kendinle kurduğun bağla başlar.
+            </Text>
+
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Ionicons name="leaf-outline" size={15} color="#D9A39C" />
+              <View style={styles.dividerLine} />
+            </View>
+          </View>
+
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionIconCircle}>
+                <Ionicons name="person-outline" size={22} color="#B86D67" />
+              </View>
+              <Text style={styles.sectionHeading}>Bilgilerim</Text>
+            </View>
+
+            <View style={styles.fieldBlock}>
+              <Text style={styles.fieldLabel}>Adın</Text>
+
+              <View style={styles.inputWrap}>
+                <View style={styles.inputIconCircle}>
+                  <Ionicons name="person-outline" size={18} color="#B86D67" />
+                </View>
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Adını yaz"
+                  placeholderTextColor="#B8938E"
+                  value={name}
+                  onChangeText={setName}
+                />
+              </View>
             </View>
 
             <TouchableOpacity
-              style={[styles.button, isSaving && { opacity: 0.7 }]}
+              style={[styles.saveButton, isSaving && { opacity: 0.7 }]}
               onPress={handleSave}
               disabled={isSaving}
             >
-              <Text style={styles.buttonText}>
+              <View style={styles.saveButtonGlow} />
+              <Text style={styles.saveButtonText}>
                 {isSaving ? "Kaydediliyor..." : "Kaydet"}
               </Text>
+              <Ionicons
+                name="sparkles"
+                size={16}
+                color="#FFF7F5"
+                style={styles.saveSparkle}
+              />
             </TouchableOpacity>
           </View>
 
-          {/* 🔹 FAVORİLER */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>İçeriklerim</Text>
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionIconCircle}>
+                <Ionicons name="heart-outline" size={22} color="#B86D67" />
+              </View>
+              <Text style={styles.sectionHeading}>İçeriklerim</Text>
+            </View>
 
             <TouchableOpacity
-              style={styles.card}
+              style={styles.favoritesCard}
               onPress={() => router.push("/favorites")}
             >
-              <Text style={styles.cardTitle}>Favorilerim</Text>
-              <Text style={styles.cardText}>
-                Beğendiğin içerikleri burada toplu olarak görebilirsin.
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.favoritesTitle}>Favorilerim</Text>
+                <Text style={styles.favoritesText}>
+                  Beğendiğin içerikleri burada toplu olarak görebilirsin.
+                </Text>
+              </View>
+
+              <View style={styles.chevronCircle}>
+                <Ionicons name="chevron-forward" size={22} color="#7A554F" />
+              </View>
             </TouchableOpacity>
           </View>
 
-          {/* 🔹 SOSYAL */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>WellShe ile bağlantıda kal ✨</Text>
-            <Text style={styles.sectionDescription}>
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.blockTitle}>WellShe ile bağlantıda kal</Text>
+              <TouchableOpacity
+                onPress={() =>
+                  Alert.alert(
+                    "Bağlantıda kal",
+                    "Güncellemeler, mini ipuçları ve yeni içerikler için sosyal medya hesaplarımızı takip edebilirsin."
+                  )
+                }
+              >
+                <View style={styles.infoCircle}>
+                  <Ionicons
+                    name="help-circle-outline"
+                    size={24}
+                    color="#8B625C"
+                  />
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.blockDescription}>
               Güncellemeler, mini ipuçları ve yeni içerikler için sosyal medyada
               da buluşalım.
             </Text>
 
             <View style={styles.socialRow}>
               <TouchableOpacity
-                style={styles.socialButton}
+                style={styles.socialCard}
                 onPress={handleInstagram}
               >
-                <Ionicons name="logo-instagram" size={20} color="#B0756F" />
-                <Text style={styles.socialText}>Instagram</Text>
+                <View style={styles.socialIconCircle}>
+                  <Ionicons name="logo-instagram" size={28} color="#B86D67" />
+                </View>
+                <Text style={styles.socialLabel}>Instagram</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.socialButton}
+                style={styles.socialCard}
                 onPress={handleTikTok}
               >
-                <Ionicons name="logo-tiktok" size={20} color="#B0756F" />
-                <Text style={styles.socialText}>TikTok</Text>
+                <View style={styles.socialIconCircle}>
+                  <Ionicons name="logo-tiktok" size={26} color="#B86D67" />
+                </View>
+                <Text style={styles.socialLabel}>TikTok</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.socialButton}
+                style={styles.socialCard}
                 onPress={handleLinkedIn}
               >
-                <Ionicons name="logo-linkedin" size={20} color="#B0756F" />
-                <Text style={styles.socialText}>LinkedIn</Text>
+                <View style={styles.socialIconCircle}>
+                  <Ionicons name="logo-linkedin" size={26} color="#B86D67" />
+                </View>
+                <Text style={styles.socialLabel}>LinkedIn</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* 🔹 PUANLA */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>
-              WellShe’ye küçük bir yıldız bırak 🌟
-            </Text>
-            <Text style={styles.sectionDescription}>
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.blockTitle}>WellShe’ye küçük bir yıldız bırak</Text>
+              <View style={styles.starDecorWrap}>
+                <Ionicons name="sparkles-outline" size={16} color="#E8A8A3" />
+                <Ionicons name="star" size={26} color="#E7A59F" />
+                <Ionicons name="sparkles-outline" size={14} color="#E8A8A3" />
+              </View>
+            </View>
+
+            <Text style={styles.blockDescription}>
               Uygulamayı beğendiysen mağazada vereceğin her puan çok şey değiştirir.
             </Text>
 
-            <View style={styles.rateRow}>
+            <View style={styles.storeRow}>
               <TouchableOpacity
-                style={[styles.rateButton, { backgroundColor: "#F3B6B3" }]}
+                style={[styles.storeButton, styles.playButton]}
                 onPress={handleRateOnPlayStore}
               >
-                <Text style={styles.rateButtonText}>Google Play</Text>
+                <Ionicons name="logo-google-playstore" size={20} color="#FFF" />
+                <Text style={styles.storeButtonText}>Google Play</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.rateButton, { backgroundColor: "#B0756F" }]}
+                style={[styles.storeButton, styles.appStoreButton]}
                 onPress={handleRateOnAppStore}
               >
-                <Text style={styles.rateButtonText}>App Store</Text>
+                <Ionicons name="logo-apple" size={22} color="#FFF" />
+                <Text style={styles.storeButtonText}>App Store</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* 🔹 BİZE YAZ */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Bana yaz 💌</Text>
-            <Text style={styles.sectionDescription}>
+          <View style={styles.sectionCard}>
+            <Text style={styles.blockTitle}>Bana yaz</Text>
+            <Text style={styles.blockDescription}>
               WellShe ile ilgili yorumun, sorun, teklifin veya önerin mi var? Bana
-              yaz!
+              yaz.
             </Text>
 
             <TouchableOpacity style={styles.mailButton} onPress={handleSendMail}>
@@ -331,31 +418,39 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => router.back()}
-          >
-            <Text style={styles.secondaryButtonText}>Geri dön</Text>
-          </TouchableOpacity>
-
-          {/* 🔹 GİZLİLİK */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Gizlilik</Text>
+          <View style={styles.sectionCard}>
+            <Text style={styles.blockTitle}>Gizlilik</Text>
+            <Text style={styles.blockDescription}>
+              Verilerin sadece senin cihazında saklanır. Detaylar için aşağıdan
+              ulaşabilirsin.
+            </Text>
 
             <Pressable
-              style={styles.card}
+              style={styles.privacyCard}
               onPress={() => router.push("/privacy")}
             >
-              <Text style={styles.cardTitle}>Gizlilik & KVKK</Text>
-              <Text style={styles.cardText}>
-                Verilerin sadece senin cihazında saklanır. Detaylar için dokun.
-              </Text>
+              <View style={styles.privacyLeft}>
+                <View style={styles.sectionIconCircle}>
+                  <Ionicons
+                    name="shield-checkmark-outline"
+                    size={20}
+                    color="#B86D67"
+                  />
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.favoritesTitle}>Gizlilik & KVKK</Text>
+                  <Text style={styles.favoritesText}>
+                    Uygulamadaki gizlilik yaklaşımını ve detayları görüntüle.
+                  </Text>
+                </View>
+              </View>
+
+              <Ionicons name="chevron-forward" size={22} color="#7A554F" />
             </Pressable>
           </View>
-
         </ScrollView>
 
-        {/* 🔹 Alt bant reklam */}
         <ProfileBannerAd />
       </View>
     </SafeAreaView>
@@ -363,135 +458,476 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#FFF7F3" },
-  page: { flex: 1 },
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#FFF8F6",
+  },
 
-  container: { padding: 16, paddingBottom: 32 },
+  page: {
+    flex: 1,
+    backgroundColor: "#FFF8F6",
+  },
 
-  title: {
-    fontSize: 22,
+  container: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 30,
+  },
+
+  topBar: {
+    minHeight: 56,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+
+  backButton: {
+    position: "absolute",
+    left: 0,
+    top: 4,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: "rgba(255,255,255,0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#D8B1AC",
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  },
+
+  topSpacer: {
+    width: 62,
+    height: 62,
+  },
+
+  screenTitle: {
+    fontSize: 24,
     fontWeight: "700",
-    color: "#4A2E2A",
-    marginBottom: 8,
+    color: "#533431",
   },
-  subtitle: { fontSize: 14, color: "#6B4A44", marginBottom: 14 },
 
-  section: { marginBottom: 24 },
-  sectionTitle: {
+  hero: {
+    alignItems: "center",
+    marginTop: 6,
+    marginBottom: 18,
+  },
+
+  heroBadgeOuter: {
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    backgroundColor: "rgba(255,255,255,0.72)",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#D7ACA6",
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 6,
+    marginBottom: 12,
+  },
+
+  heroBadgeImage: {
+    width: 132,
+    height: 132,
+  },
+
+  sparkleWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 6,
+  },
+
+  heroText: {
     fontSize: 18,
-    fontWeight: "600",
-    color: "#4A2E2A",
-    marginBottom: 8,
+    color: "#6A433F",
+    textAlign: "center",
+    fontWeight: "500",
+    lineHeight: 26,
+    paddingHorizontal: 18,
   },
-  sectionDescription: { fontSize: 13, color: "#6B4A44", marginBottom: 10 },
 
-  profileCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#F3B6B3",
-    padding: 14,
-    marginBottom: 22,
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 10,
   },
-  profileCardTitle: {
+
+  dividerLine: {
+    width: 68,
+    height: 1.5,
+    backgroundColor: "#E8C2BC",
+    borderRadius: 999,
+  },
+
+  sectionCard: {
+    backgroundColor: "rgba(255,255,255,0.78)",
+    borderWidth: 1,
+    borderColor: "#EDC8C2",
+    borderRadius: 26,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: "#E0B8B1",
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
+
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+
+  sectionIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#F9E7E3",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+
+  sectionHeading: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#5A3732",
+  },
+
+  fieldBlock: {
+    marginBottom: 16,
+  },
+
+  fieldLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#8B625C",
+    marginBottom: 8,
+    marginLeft: 6,
+  },
+
+  inputWrap: {
+    borderWidth: 1.5,
+    borderColor: "#EDC8C2",
+    borderRadius: 20,
+    backgroundColor: "rgba(255,250,249,0.95)",
+    minHeight: 70,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+  },
+
+  inputIconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#F9E7E3",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+
+  input: {
+    flex: 1,
+    fontSize: 17,
+    color: "#5A3732",
+    paddingVertical: 12,
+  },
+
+  saveButton: {
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 4,
+    backgroundColor: "#D98D89",
+    overflow: "hidden",
+    position: "relative",
+  },
+
+  saveButtonGlow: {
+    position: "absolute",
+    right: -20,
+    top: -14,
+    width: 170,
+    height: 90,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+
+  saveButtonText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+
+  saveSparkle: {
+    position: "absolute",
+    right: 20,
+    bottom: 16,
+  },
+
+  favoritesCard: {
+    borderWidth: 1.2,
+    borderColor: "#EFD4D0",
+    borderRadius: 22,
+    backgroundColor: "rgba(255,248,247,0.9)",
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  favoritesTitle: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#4A2E2A",
-    marginBottom: 10,
-  },
-
-  card: {
-    padding: 14,
-    borderRadius: 12,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#F3B6B3",
-  },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#B0756F",
+    color: "#5A3732",
     marginBottom: 4,
   },
-  cardText: { fontSize: 14, color: "#4A2E2A" },
+
+  favoritesText: {
+    fontSize: 14,
+    color: "#77504A",
+    lineHeight: 20,
+  },
+
+  chevronCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderWidth: 1,
+    borderColor: "#F0D3CE",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 14,
+  },
+
+  sectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+
+  blockTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#5A3732",
+    flex: 1,
+    paddingRight: 10,
+  },
+
+  blockDescription: {
+    fontSize: 14,
+    color: "#7B5752",
+    lineHeight: 21,
+    marginBottom: 14,
+  },
+
+  infoCircle: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   socialRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  socialButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#F3B6B3",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  socialText: {
-    marginTop: 6,
-    fontSize: 12,
-    color: "#4A2E2A",
-    fontWeight: "600",
+    gap: 12,
   },
 
-  rateRow: { flexDirection: "row", gap: 10 },
-  rateButton: {
+  socialCard: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 999,
+    borderRadius: 18,
+    borderWidth: 1.2,
+    borderColor: "#F0D3CE",
+    backgroundColor: "rgba(255,255,255,0.9)",
     alignItems: "center",
     justifyContent: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 8,
   },
-  rateButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "600" },
+
+  socialIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#F9E7E3",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+
+  socialLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#5A3732",
+  },
+
+  starDecorWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    marginTop: 1,
+  },
+
+  storeRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+
+  storeButton: {
+    flex: 1,
+    height: 58,
+    borderRadius: 29,
+    justifyContent: "center",
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+
+  playButton: {
+    backgroundColor: "#D98D89",
+  },
+
+  appStoreButton: {
+    backgroundColor: "#B97A76",
+  },
+
+  storeButtonText: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "700",
+  },
 
   mailButton: {
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: "#F3B6B3",
+    paddingVertical: 14,
+    borderRadius: 20,
+    backgroundColor: "#F1B0AA",
     alignItems: "center",
     justifyContent: "center",
   },
-  mailButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "600" },
 
-  field: { marginBottom: 12 },
-  label: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#4A2E2A",
-    marginBottom: 6,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#F3B6B3",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  mailButtonText: {
+    color: "#FFFFFF",
     fontSize: 15,
-    backgroundColor: "#FFF7F3",
-    color: "#4A2E2A",
+    fontWeight: "700",
   },
-  button: {
-    backgroundColor: "#F3B6B3",
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 4,
-  },
-  buttonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
 
-  secondaryButton: { paddingVertical: 10, alignItems: "center", marginTop: 8 },
-  secondaryButtonText: {
-    fontSize: 14,
-    color: "#B0756F",
-    textDecorationLine: "underline",
+  privacyCard: {
+    borderWidth: 1.2,
+    borderColor: "#F0D3CE",
+    borderRadius: 20,
+    backgroundColor: "rgba(255,248,247,0.9)",
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  privacyLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    marginRight: 12,
   },
 
   adContainer: {
     paddingHorizontal: 8,
     paddingBottom: 8,
     alignItems: "center",
+    backgroundColor: "#FFF8F6",
+  },
+
+  bgTopRightBlob: {
+    position: "absolute",
+    top: -30,
+    right: -20,
+    width: 170,
+    height: 170,
+    borderRadius: 999,
+    backgroundColor: "rgba(241, 202, 196, 0.38)",
+  },
+
+  bgTopRightBlob2: {
+    position: "absolute",
+    top: 18,
+    right: 38,
+    width: 110,
+    height: 110,
+    borderRadius: 999,
+    backgroundColor: "rgba(247, 221, 216, 0.45)",
+  },
+
+  heroCurve: {
+    position: "absolute",
+    top: 220,
+    left: -40,
+    right: -40,
+    height: 170,
+    backgroundColor: "rgba(255,255,255,0.5)",
+    borderTopLeftRadius: 220,
+    borderTopRightRadius: 220,
+  },
+
+  leftLeaf: {
+    position: "absolute",
+    top: 132,
+    left: -8,
+  },
+
+  rightLeafTop: {
+    position: "absolute",
+    top: 520,
+    right: 0,
+  },
+
+  rightLeafBottom: {
+    position: "absolute",
+    top: 760,
+    right: 0,
+  },
+
+  leafBranch: {
+    width: 76,
+    height: 170,
+    position: "absolute",
+  },
+
+  leafItem: {
+    position: "absolute",
+    width: 14,
+    height: 34,
+    borderRadius: 20,
+    backgroundColor: "rgba(228, 176, 168, 0.52)",
+  },
+
+  leafOne: {
+    left: 20,
+    top: 10,
+    transform: [{ rotate: "-42deg" }],
+  },
+
+  leafTwo: {
+    left: 38,
+    top: 30,
+    transform: [{ rotate: "30deg" }],
+  },
+
+  leafThree: {
+    left: 18,
+    top: 56,
+    transform: [{ rotate: "-38deg" }],
+  },
+
+  leafFour: {
+    left: 36,
+    top: 78,
+    transform: [{ rotate: "28deg" }],
   },
 });

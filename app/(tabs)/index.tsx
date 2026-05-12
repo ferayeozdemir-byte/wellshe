@@ -1,5 +1,7 @@
 // app/(tabs)/index.tsx
 
+import { trackEvent } from "@/lib/analytics";
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import Constants from "expo-constants";
@@ -40,7 +42,6 @@ import {
 } from "../../lib/cycle";
 import { fetchLatestWeekly } from "../../lib/weeklyRemote";
 import { CATEGORY_ICONS, type CategoryKey } from "../_ui/categoryIcons";
-import { WEEKLY_ICONS } from "../_ui/weeklyIcons";
 import SponsorSplash from "../components/SponsorSplash";
 
 console.log("runtimeVersion", Updates.runtimeVersion);
@@ -196,6 +197,28 @@ const categoryLabels: Record<CategoryId, string> = {
   home: "Ev / Yaşam",
 };
 
+const LATEST_CATEGORY_IMAGES: Record<CategoryKey, any> = {
+  healthyEating: require("../../assets/images/home/latest/healthy-eating.png"),
+  relationships: require("../../assets/images/home/latest/relationships.png"),
+  wellbeing: require("../../assets/images/home/latest/wellbeing.png"),
+  sport: require("../../assets/images/home/latest/sport.png"),
+  fashion: require("../../assets/images/home/latest/fashion.png"),
+  beauty: require("../../assets/images/home/latest/beauty.png"),
+  astrology: require("../../assets/images/home/latest/astrology.png"),
+  travel: require("../../assets/images/home/latest/travel.png"),
+  home: require("../../assets/images/home/latest/home.png"),
+};
+
+const FEATURED_HOME_IMAGES = {
+  calorie: require("../../assets/images/home/featured/calorie-card.png"),
+};
+
+const WEEKLY_FEATURED_IMAGES = {
+  movie: require("../../assets/images/home/weekly/movie-card.png"),
+  music: require("../../assets/images/home/weekly/music-card.png"),
+  book: require("../../assets/images/home/weekly/book-card.png"),
+};
+
 // 🔥 Motivasyon cümleleri
 const MOTIVATION_QUOTES: string[] = [
   "Bugün kendin için en az bir küçük iyilik yap. Küçük adımlar, büyük değişim yaratır.",
@@ -213,7 +236,7 @@ const MOTIVATION_QUOTES: string[] = [
   "Kendine inandığında geri kalan her şeyin yolu açılır.",
   "Dengeni bulduğunda hayatın ritmi değişir.",
   "Zihnini sadeleştir, yolun netleşsin.",
-  "Senin için doğru olan zaten sana doğru gelir.",
+  "Senin için doğru olan zaten sana gelir.",
   "Kendine verdiğin söz, en değerli sözdür.",
   "Bugün de pes etme. Çünkü hikâyen yeni başlıyor.",
   "Kendini geliştirmek, kendine verebileceğin en güzel hediye.",
@@ -301,7 +324,7 @@ function getPhaseOneLinerFromKey(phaseKey: CyclePhase): string {
     return "Regl fazındasın. Tempoyu biraz düşürmek, sıcak içecekler hazırlamak ve yumuşak dinlenme alanları yaratmak bedenine çok iyi gelebilir.";
   }
   if (phaseKey === "follicular") {
-    return "Folikül fazındasın. Yeni başlangıçlar, plan yapmak ve hafif hareketle rutine dönmek için destekleyici bir dönemdesin.";
+    return "Folikül fazındasın. Yeni başlangıçlar ve plan yapmak, hafif hareketle rutine dönmek için destekleyici bir dönemdesin.";
   }
   if (phaseKey === "ovulation") {
     return "Ovülasyon fazındasın. Enerjinin yükseldiği bu dönemde sosyalleşmek ve üretmek için kendine alan açabilirsin.";
@@ -328,8 +351,14 @@ export default function HomeScreen() {
 
   // Home mount log
   useEffect(() => {
-    console.log("HOME INDEX LOADED ✅", new Date().toISOString());
-  }, []);
+  console.log("HOME INDEX LOADED ✅", new Date().toISOString());
+
+  void trackEvent({
+  event_name: "screen_view",
+  screen_name: "home",
+});
+
+}, []);
 
   const router = useRouter();
 
@@ -515,6 +544,7 @@ export default function HomeScreen() {
   const [tempName, setTempName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [waterCount, setWaterCount] = useState(0);
+  const [homeSearchQuery, setHomeSearchQuery] = useState("");
 
   // 🔹 Su sayacı – gün bazlı kalıcı hale getir
   const loadWaterForToday = useCallback(async () => {
@@ -613,11 +643,13 @@ export default function HomeScreen() {
 
   // Regl bilgisi (tek kaynak: lib/cycle)
   const [cycleInfo, setCycleInfo] = useState<{
-    phaseKey: CyclePhase;
-    phaseTitle: string;
-    phaseDescription: string;
-    nextPeriodDateText: string;
-  } | null>(null);
+  phaseKey: CyclePhase;
+  phaseTitle: string;
+  phaseDescription: string;
+  nextPeriodDateText: string;
+  statusText: string;
+  cycleDayLabel: string;
+} | null>(null);
 
   const motivationText = getTodayMotivation();
   const phaseOneLiner = cycleInfo
@@ -693,80 +725,148 @@ export default function HomeScreen() {
   const latestMusic = weeklyLatest?.music ?? pickLatestWeekly(weeklyArchive.music);
   const latestBook = weeklyLatest?.book ?? pickLatestWeekly(weeklyArchive.book);
 
+  const getWeeklyTeaser = (item: WeeklyItem | null, fallback: string) =>
+  String((item as any)?.teaser ?? fallback).trim();
+
+  const movieWeeklyTeaser = getWeeklyTeaser(
+    latestMovie,
+    "Bu haftanın ilham veren yapımını keşfet."
+  );
+
+  const musicWeeklyTeaser = getWeeklyTeaser(
+    latestMusic,
+    "Bu haftanın müzik önerisini keşfet."
+  );
+
+  const bookWeeklyTeaser = getWeeklyTeaser(
+    latestBook,
+    "Bu haftanın kitap önerisini keşfet."
+  );
+
   // Regl verilerini storage'dan okuyup cycleInfo'yu güncelleyen fonksiyon
   const loadPeriodData = useCallback(async () => {
-    try {
-      const [settingsRaw, logsRaw] = await Promise.all([
-        getFirstExisting(PERIOD_SETTINGS_KEYS),
-        getFirstExisting(PERIOD_LOGS_KEYS),
-      ]);
+  try {
+    const [settingsRaw, logsRaw] = await Promise.all([
+      getFirstExisting(PERIOD_SETTINGS_KEYS),
+      getFirstExisting(PERIOD_LOGS_KEYS),
+    ]);
 
-      console.log("🔴 PERIOD DEBUG - RAW values:", { settingsRaw, logsRaw });
+    console.log("🔴 PERIOD DEBUG - RAW values:", { settingsRaw, logsRaw });
 
-      if (!settingsRaw || !logsRaw) {
-        setCycleInfo(null);
-        return;
-      }
-
-      let settings: PeriodSettings;
-      let logs: PeriodLog[] = [];
-
-      try {
-        settings = JSON.parse(settingsRaw);
-      } catch (e) {
-        console.log("❌ PERIOD DEBUG - settings JSON parse hatası:", e);
-        setCycleInfo(null);
-        return;
-      }
-
-      try {
-        const parsedLogs = JSON.parse(logsRaw);
-        if (Array.isArray(parsedLogs)) {
-          logs = parsedLogs;
-        } else if (parsedLogs && Array.isArray(parsedLogs.logs)) {
-          logs = parsedLogs.logs;
-        } else if (parsedLogs && parsedLogs.startDate) {
-          logs = [parsedLogs as PeriodLog];
-        } else {
-          console.log("❌ PERIOD DEBUG - logs beklenen formatta değil:", parsedLogs);
-          setCycleInfo(null);
-          return;
-        }
-      } catch (e) {
-        console.log("❌ PERIOD DEBUG - logs JSON parse hatası:", e);
-        setCycleInfo(null);
-        return;
-      }
-
-      if (!logs.length) {
-        setCycleInfo(null);
-        return;
-      }
-
-      // ✅ Tek kaynak: faz + nextPeriod = lib/cycle
-      const phase = getCyclePhaseInfo(logs, settings);
-      const nextIso = getNextPeriodStart(logs, settings);
-      const nextPeriodDateText = nextIso
-        ? formatDateTRFromISO(nextIso)
-        : "Henüz hesaplanamıyor";
-
-      console.log("🔴 PERIOD DEBUG - phase/next:", {
-        phaseKey: phase.key,
-        phaseTitle: phase.title,
-        nextIso,
-      });
-
-      setCycleInfo({
-        phaseKey: phase.key as CyclePhase,
-        phaseTitle: phase.title,
-        phaseDescription: phase.description,
-        nextPeriodDateText,
-      });
-    } catch (e) {
-      console.log("❌ Regl verileri yüklenirken genel hata:", e);
+    if (!settingsRaw || !logsRaw) {
       setCycleInfo(null);
+      return;
     }
-  }, []);
+
+    let settings: PeriodSettings;
+    let logs: PeriodLog[] = [];
+
+    try {
+      settings = JSON.parse(settingsRaw);
+    } catch (e) {
+      console.log("❌ PERIOD DEBUG - settings JSON parse hatası:", e);
+      setCycleInfo(null);
+      return;
+    }
+
+    try {
+      const parsedLogs = JSON.parse(logsRaw);
+
+      if (Array.isArray(parsedLogs)) {
+        logs = parsedLogs;
+      } else if (parsedLogs && Array.isArray(parsedLogs.logs)) {
+        logs = parsedLogs.logs;
+      } else if (parsedLogs && parsedLogs.startDate) {
+        logs = [parsedLogs as PeriodLog];
+      } else {
+        console.log("❌ PERIOD DEBUG - logs beklenen formatta değil:", parsedLogs);
+        setCycleInfo(null);
+        return;
+      }
+    } catch (e) {
+      console.log("❌ PERIOD DEBUG - logs JSON parse hatası:", e);
+      setCycleInfo(null);
+      return;
+    }
+
+    const normalizedLogs = logs
+      .filter((item) => !!item?.startDate)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+    if (!normalizedLogs.length) {
+      setCycleInfo(null);
+      return;
+    }
+
+    const phase = getCyclePhaseInfo(normalizedLogs, settings);
+    const nextIso = getNextPeriodStart(normalizedLogs, settings);
+    const nextPeriodDateText = nextIso
+      ? formatDateTRFromISO(nextIso)
+      : "Henüz hesaplanamıyor";
+
+    const lastStartIso = normalizedLogs[normalizedLogs.length - 1].startDate;
+
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    const parseIsoDate = (iso: string) => {
+      const d = new Date(`${iso}T00:00:00`);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
+
+    const todayIso = toISODate(new Date());
+    const todayDate = parseIsoDate(todayIso);
+    const lastStartDate = parseIsoDate(lastStartIso);
+    const nextDate = nextIso ? parseIsoDate(nextIso) : null;
+
+    const cycleDayRaw =
+      Math.floor((todayDate.getTime() - lastStartDate.getTime()) / dayMs) + 1;
+
+    const cycleDay =
+      Number.isFinite(cycleDayRaw) && cycleDayRaw > 0 ? cycleDayRaw : 1;
+
+    let statusText = "Takvimini güncel tut";
+
+    if (cycleDay <= settings.periodLength) {
+      statusText = `Reglin ${cycleDay}. günü`;
+    } else if (nextDate) {
+      const daysUntilNextPeriod = Math.round(
+        (nextDate.getTime() - todayDate.getTime()) / dayMs
+      );
+
+      if (daysUntilNextPeriod > 0) {
+        statusText = `${daysUntilNextPeriod} gün kaldı`;
+      } else if (daysUntilNextPeriod === 0) {
+        statusText = "Bugün başlayabilir";
+      } else {
+        statusText = `${Math.abs(daysUntilNextPeriod)} gün gecikme`;
+      }
+    }
+
+    const cycleDayLabel =
+      cycleDay > 0 ? `Döngünün ${cycleDay}. günü` : "Döngü bilgisi hazır";
+
+    console.log("🔴 PERIOD DEBUG - phase/next:", {
+      phaseKey: phase.key,
+      phaseTitle: phase.title,
+      nextIso,
+      statusText,
+      cycleDayLabel,
+    });
+
+    setCycleInfo({
+      phaseKey: phase.key as CyclePhase,
+      phaseTitle: phase.title,
+      phaseDescription: phase.description,
+      nextPeriodDateText,
+      statusText,
+      cycleDayLabel,
+    });
+  } catch (e) {
+    console.log("❌ Regl verileri yüklenirken genel hata:", e);
+    setCycleInfo(null);
+  }
+}, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -787,6 +887,11 @@ export default function HomeScreen() {
 
   // ✅ Su hatırlatıcısı (DAILY / süresiz)
   const handleWaterReminder = async () => {
+    void trackEvent({
+  event_name: "feature_used",
+  screen_name: "home",
+  feature_name: "water_reminder_click",
+});
     try {
       const ok = await ensureNotificationPermission();
       if (!ok) {
@@ -838,6 +943,11 @@ export default function HomeScreen() {
 
   // ✅ Günlük hareket hatırlatıcısı (DAILY / süresiz)
   const handleDailyMoveReminder = async () => {
+    void trackEvent({
+  event_name: "feature_used",
+  screen_name: "home",
+  feature_name: "move_reminder_click",
+});
     try {
       const ok = await ensureNotificationPermission();
       if (!ok) {
@@ -930,28 +1040,42 @@ export default function HomeScreen() {
   };
 
   const handleCategoryPress = (key: string) => {
-    router.push(`/categories/${key}`);
-  };
+  router.push(`/categories/${key}`);
+};
+
+const handleHomeSearchSubmit = () => {
+  const q = homeSearchQuery.trim();
+
+  if (q.length < 2) {
+    Alert.alert("Arama", "Lütfen en az 2 karakter girin.");
+    return;
+  }
+
+  router.push({
+    pathname: "/search",
+    params: { q },
+  });
+};
 
   // Su sayacını değiştir + AsyncStorage'a kaydet (günlük)
   const changeWaterCount = (delta: number) => {
-    const todayKey = toISODate(new Date());
+  const todayKey = toISODate(new Date());
 
-    setWaterCount((prev: number) => {
-      let next = prev + delta;
-      if (next < 0) next = 0;
-      if (next > WATER_GOAL) next = WATER_GOAL;
+  setWaterCount((prev: number) => {
+    let next = prev + delta;
 
-      AsyncStorage.setItem(
-        WATER_TRACK_KEY,
-        JSON.stringify({ date: todayKey, count: next })
-      ).catch((e) => {
-        console.log("Su sayacı kaydedilirken hata:", e);
-      });
+    if (next < 0) next = 0;
 
-      return next;
+    AsyncStorage.setItem(
+      WATER_TRACK_KEY,
+      JSON.stringify({ date: todayKey, count: next })
+    ).catch((e) => {
+      console.log("Su sayacı kaydedilirken hata:", e);
     });
-  };
+
+    return next;
+  });
+};
 
   if (isLoading) {
     return (
@@ -997,165 +1121,248 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Logo */}
-        <View style={styles.appLogoCircle}>
-          <Image
-            source={require("../../assets/images/logo/wellshe_logo.png")}
-            style={styles.appLogoInner}
-            resizeMode="cover"
-          />
+              <View pointerEvents="none" style={styles.decorLayer}>
+        <View style={styles.decorBlobLeft} />
+        <View style={styles.decorBlobRight} />
+        <Text style={styles.decorFlowerRight}>✿</Text>
+        <Text style={styles.decorLeafLeft}>❀</Text>
+      </View>
+
+      {/* Sadece lotus logo */}
+      <View style={styles.appLogoCrop}>
+       <Image
+        source={require("../../assets/images/logo/lotus.png")}
+        style={styles.appLogoCropImage}
+        resizeMode="contain"
+       />
+      </View>
+
+      {/* ✅ OTA DEBUG KARTI (PROD’DA GİZLİ) */}
+      {showOtaDebug ? (
+        <View style={styles.otaCard}>
+          <Text style={styles.otaTitle}>OTA DEBUG</Text>
+          <Text style={styles.otaMono}>{otaDebug}</Text>
+
+          <Pressable style={styles.otaBtn} onPress={checkAndApplyOta}>
+            <Text style={styles.otaBtnText}>CHECK & APPLY OTA</Text>
+          </Pressable>
+
+          <Pressable style={styles.otaBtnSecondary} onPress={reloadOnly}>
+            <Text style={styles.otaBtnText}>RELOAD ONLY</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/* Sponsor alanı */}
+      <View style={styles.sponsorRow}>
+       <View style={styles.sponsorLogoCircle}>
+        <Image
+         source={require("../../assets/sponsors/global-solar.png")}
+         style={styles.sponsorLogoInner}
+         resizeMode="cover"
+        />
+       </View>
+
+       <Text style={styles.sponsorRowText}>ENERJİ SPONSORUMUZ</Text>
+      </View>
+
+      {/* Selamlama + Profil */}
+      <View style={styles.greetingRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.greeting}>Merhaba {name} 🌸</Text>
         </View>
 
-        {/* ✅ OTA DEBUG KARTI (PROD’DA GİZLİ) */}
-        {showOtaDebug ? (
-          <View style={styles.otaCard}>
-            <Text style={styles.otaTitle}>OTA DEBUG</Text>
-            <Text style={styles.otaMono}>{otaDebug}</Text>
+        <TouchableOpacity
+          style={styles.profilePill}
+          onPress={() => router.push("/profile")}
+        >
+          <Ionicons name="person-outline" size={16} color="#7A5751" />
+          <Text style={styles.profilePillText}>Profil</Text>
+        </TouchableOpacity>
+      </View>
 
-            <Pressable style={styles.otaBtn} onPress={checkAndApplyOta}>
-              <Text style={styles.otaBtnText}>CHECK & APPLY OTA</Text>
-            </Pressable>
-
-            <Pressable style={styles.otaBtnSecondary} onPress={reloadOnly}>
-              <Text style={styles.otaBtnText}>RELOAD ONLY</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {/* Sponsor satırı: ortalı logo + metin */}
-        <View style={styles.sponsorRow}>
-          <View style={styles.sponsorLogoCircle}>
-            <Image
-              source={require("../../assets/sponsors/global-solar.png")}
-              style={styles.sponsorLogoInner}
-              resizeMode="cover"
-            />
-          </View>
-
-          <Text style={styles.sponsorRowText}>Enerji sponsorumuz</Text>
-        </View>
-
-        {/* Selamlama + Profil */}
-        <View style={styles.greetingRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.greeting}>Merhaba {name} 🌸</Text>
-          </View>
-
-          <TouchableOpacity onPress={() => router.push("/profile")}>
-            <Text style={styles.profileLink}>Profil</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Günün motivasyon cümlesi */}
-        <View style={styles.motivationCard}>
+      {/* Günün motivasyon cümlesi */}
+      <View style={styles.motivationCard}>
+        <View style={styles.quoteRow}>
+          <Text style={styles.quoteMark}>❝</Text>
           <Text style={styles.motivationText}>{motivationText}</Text>
         </View>
+      </View>
 
-        {/* Bugün döngü fazın kartı */}
-        {cycleInfo ? (
-          <View style={styles.periodCard}>
-            <Text style={styles.periodTitle}>Döngün</Text>
-
-            {phaseOneLiner && (
-              <>
-                <Text style={styles.phaseMiniTitle}>
-                  🔁 Bugün bedenin ne diyor?
-                </Text>
-                <Text style={styles.phaseMiniText}>{phaseOneLiner}</Text>
-              </>
-            )}
-
-            <Text style={styles.periodNext}>
-              Tahmini sonraki regl başlangıcı:{" "}
-              <Text style={{ fontWeight: "600" }}>
-                {cycleInfo.nextPeriodDateText}
-              </Text>
-            </Text>
-
-            <TouchableOpacity
-              style={styles.periodButton}
-              onPress={() => router.push("/period")}
-            >
-              <Text style={styles.periodButtonText}>Regl takvimini aç</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.periodCard}>
-            <Text style={styles.periodTitle}>Regl döngünü takip et</Text>
-            <Text style={styles.periodText}>
-              Döngünü uygulamaya kaydettiğinde burada her gün hangi fazda
-              olduğunu ve tahmini regl tarihini görebilirsin.
-            </Text>
-            <TouchableOpacity
-              style={styles.periodButton}
-              onPress={() => router.push("/period")}
-            >
-              <Text style={styles.periodButtonText}>Regl takvimini oluştur</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Su & hareket kartları */}
-        <View style={styles.row}>
-          {/* Su kartı */}
-          <View style={styles.smallCard}>
-            <Text style={styles.smallCardTitle}>Su Hatırlatıcısı 💧</Text>
-            <Text style={styles.smallCardText}>
-              Bugünkü hedefin, {WATER_GOAL} bardak su.{"\n"}
-              Şu ana kadar {waterCount} bardak içtin.
-            </Text>
-
-            <View style={styles.waterRow}>
-              <TouchableOpacity
-                style={styles.waterButton}
-                onPress={() => changeWaterCount(-1)}
-              >
-                <Text style={styles.waterButtonText}>-</Text>
-              </TouchableOpacity>
-
-              <Text style={styles.waterCountText}>{waterCount}</Text>
+      {/* Döngü kartı */}
+      {cycleInfo ? (
+        <View style={styles.periodHeroCard}>
+          <View style={styles.periodHeroContent}>
+            <View style={styles.periodHeroLeft}>
+              <Text style={styles.periodTitle}>Döngün</Text>
+              <Text style={styles.phaseMiniTitle}>Bugün bedenin ne söylüyor?</Text>
+              <Text style={styles.phaseTitleText}>{cycleInfo.phaseTitle}</Text>
+              <Text style={styles.periodText}>{cycleInfo.phaseDescription}</Text>
 
               <TouchableOpacity
-                style={styles.waterButton}
-                onPress={() => changeWaterCount(1)}
+                style={styles.periodButton}
+                onPress={() => router.push("/period")}
               >
-                <Text style={styles.waterButtonText}>+</Text>
+                <Text style={styles.periodButtonText}>Regl takvimini aç</Text>
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={styles.reminderButton}
-              onPress={handleWaterReminder}
-            >
-              <Text style={styles.reminderButtonText}>
-                Su hatırlatıcısını aç
+            <View style={styles.periodHeroRight}>
+              <View style={styles.periodRingOuter}>
+                <View style={styles.periodRingMiddle}>
+                  <View style={styles.periodRingInner}>
+                    <Text style={styles.periodHeart}>♥</Text>
+                  </View>
+                </View>
+              </View>
+
+              <Text style={styles.periodStatusLabel}>
+                TAHMİNİ BİR SONRAKİ REGLİNE
               </Text>
-            </TouchableOpacity>
-          </View>
+              <Text style={styles.periodStatusValue}>{cycleInfo.statusText}</Text>
 
-          {/* Hareket kartı */}
-          <View style={styles.smallCard}>
-            <Text style={styles.smallCardTitle}>Hareket Et 🧘‍♀️</Text>
-            <Text style={styles.smallCardText}>
-              En az 30 dakikalık hafif hareket planla: Kısa yürüyüş, esneme ya da
-              basit bir ev egzersizi olabilir.
-            </Text>
-
-            <TouchableOpacity
-              style={[
-                styles.reminderButton,
-                { marginTop: 8 },
-                styles.moveReminderButton,
-              ]}
-              onPress={handleDailyMoveReminder}
-            >
-              <Text style={styles.reminderButtonText}>Bana Hatırlat</Text>
-            </TouchableOpacity>
+              <View style={styles.periodBadge}>
+                <Text style={styles.periodBadgeText}>{cycleInfo.cycleDayLabel}</Text>
+              </View>
+            </View>
           </View>
         </View>
+      ) : (
+        <View style={styles.periodHeroCard}>
+          <Text style={styles.periodTitle}>Döngün</Text>
+          <Text style={styles.periodFallbackText}>
+            Regl bilgilerini eklediğinde burada fazını ve döngü özetini görebilirsin.
+          </Text>
+
+          <TouchableOpacity
+            style={styles.periodButton}
+            onPress={() => router.push("/period")}
+          >
+            <Text style={styles.periodButtonText}>Regl takvimini oluştur</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Su & hareket kartları */}
+      <View style={styles.utilityRow}>
+        {/* Su kartı */}
+        <View style={[styles.smallCard, styles.waterSmallCard]}>
+          <View pointerEvents="none" style={styles.waterCardGlow} />
+          <View pointerEvents="none" style={styles.waterCardWave} />
+          
+          <Text style={styles.smallCardTitle}>Su Hatırlatıcısı 💧</Text>
+          <Text style={styles.smallCardText}>
+            Bugünkü hedefin {WATER_GOAL} bardak su.
+          </Text>
+          <Text style={styles.smallCardText}>
+            Şu ana kadar {waterCount} bardak içtin.
+          </Text>
+
+          <View style={styles.waterRow}>
+            <TouchableOpacity
+              style={styles.waterButton}
+              onPress={() => changeWaterCount(-1)}
+            >
+              <Text style={styles.waterButtonText}>-</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.waterCountText}>{waterCount}</Text>
+
+            <TouchableOpacity
+              style={styles.waterButton}
+              onPress={() => changeWaterCount(1)}
+            >
+              <Text style={styles.waterButtonText}>+</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.reminderButton, styles.waterReminderButton]}
+            onPress={handleWaterReminder}
+          >
+            <Text style={styles.reminderButtonText}>Su hatırlatıcısını aç</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Hareket kartı */}
+        <View style={[styles.smallCard, styles.moveSmallCard]}>
+          <View pointerEvents="none" style={styles.moveCardGlow} />
+          <View pointerEvents="none" style={styles.moveCardLeaf} />
+
+          <Text style={styles.smallCardTitle}>Hareket Et 🧘‍♀️</Text>
+          <Text style={styles.smallCardText}>
+            En az 30 dakikalık hafif hareket planla.
+          </Text>
+          <Text style={styles.smallCardText}>
+            Kısa yürüyüş, esneme ya da ev egzersizi olabilir.
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.reminderButton, styles.moveReminderButton]}
+            onPress={handleDailyMoveReminder}
+          >
+            <Text style={styles.reminderButtonText}>Bana hatırlat</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Nefes & Meditasyon kartı */}
+      <TouchableOpacity
+        style={styles.meditationCard}
+        onPress={() => router.push("/practices")}
+        activeOpacity={0.9}
+      >
+        <View style={styles.meditationTextWrap}>
+          <Text style={styles.meditationTitle}>
+            Nefes Egzersizi &{"\n"}Meditasyon
+          </Text>
+
+          <Text style={styles.meditationDescription}>
+            Kısa bir mola ver, zihnini sakinleştir ve rahatla.
+          </Text>
+
+          <Text style={styles.meditationLink}>Pratiklere git →</Text>
+        </View>
+
+        <Image
+          source={require("../../assets/images/home/meditation-card.png")}
+          style={styles.meditationImage}
+          resizeMode="contain"
+        />
+      </TouchableOpacity>
 
         {/* Kategoriler */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Kategoriler</Text>
+
+          <View style={styles.homeSearchBar}>
+  <Ionicons
+    name="search-outline"
+    size={20}
+    color="#8E8E93"
+    style={styles.homeSearchIcon}
+  />
+
+  <TextInput
+    value={homeSearchQuery}
+    onChangeText={setHomeSearchQuery}
+    placeholder="İçerik ara"
+    placeholderTextColor="#8E8E93"
+    style={styles.homeSearchInput}
+    returnKeyType="search"
+    onSubmitEditing={handleHomeSearchSubmit}
+  />
+
+  {homeSearchQuery.trim().length > 0 ? (
+    <Pressable
+      onPress={() => setHomeSearchQuery("")}
+      hitSlop={10}
+      style={styles.homeSearchClear}
+    >
+      <Ionicons name="close-circle" size={20} color="#B0B0B5" />
+    </Pressable>
+  ) : null}
+</View>
 
           <ScrollView
             horizontal
@@ -1183,10 +1390,30 @@ export default function HomeScreen() {
 
           {/* 🔥 Kalori hesaplama butonu */}
           <TouchableOpacity
-            style={styles.astroNotifyButton}
+            style={styles.featuredCalorieCard}
             onPress={() => router.push("/calorie")}
+            activeOpacity={0.92}
           >
-            <Text style={styles.astroNotifyButtonText}>🔥 Kalori Hesapla</Text>
+            <Image
+              source={FEATURED_HOME_IMAGES.calorie}
+              style={styles.featuredCalorieImage}
+              resizeMode="cover"
+            />
+
+            <View style={styles.featuredCalorieOverlay}>
+              <View style={styles.featuredCalorieTextBox}>
+
+                <Text style={styles.featuredCalorieTitle}>Kalori Hesapla</Text>
+
+                <Text style={styles.featuredCalorieText}>
+                  Hedefine uygun kalori miktarını öğren.
+                </Text>
+              </View>
+
+              <View style={styles.featuredCalorieArrow}>
+                <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+              </View>
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -1203,111 +1430,167 @@ export default function HomeScreen() {
               <Text style={styles.contentTitle}>Henüz içerik yok.</Text>
             </View>
           ) : (
-            latestRemote.map((article) => (
-              <View key={article.id} style={styles.contentCardRow}>
-                <Pressable
-                  style={{ flex: 1 }}
-                  onPress={() =>
-                    router.push({
-                      pathname: article.slug
-                        ? `/article/${article.slug}`
-                        : `/article/${article.id}`,
-                      params: {
-                        articleId: article.id,
-                        initialTitle: article.title,
-                        initialSummary: article.summary,
-                        initialCoverUrl: article.coverUrl ?? "",
-                      },
-                    })
-                  }
-                >
-                  <View style={styles.latestRowTop}>
-                    {article.categoryKey ? (
-                      <View style={styles.latestIconWrap}>
-                        <Image
-                          source={CATEGORY_ICONS[article.categoryKey]}
-                          style={styles.latestIcon}
-                          resizeMode="cover"
-                        />
-                      </View>
-                    ) : null}
+            latestRemote.map((article) => {
+  const fallbackImage =
+    article.categoryKey ? LATEST_CATEGORY_IMAGES[article.categoryKey] : null;
 
-                    <Text style={styles.latestCategoryText}>
-                      {article.categoryLabel}
-                    </Text>
-                  </View>
+  return (
+    <View key={article.id} style={styles.latestArticleCard}>
+      <Pressable
+        style={styles.latestArticlePressable}
+        onPress={() =>
+          router.push({
+            pathname: article.slug
+              ? `/article/${article.slug}`
+              : `/article/${article.id}`,
+            params: {
+              articleId: article.id,
+              initialTitle: article.title,
+              initialSummary: article.summary,
+              initialCoverUrl: article.coverUrl ?? "",
+            },
+          })
+        }
+      >
+        {fallbackImage ? (
+          <Image
+            source={fallbackImage}
+            style={styles.latestArticleThumb}
+            resizeMode="cover"
+          />
+        ) : null}
 
-                  <Text style={styles.contentTitle}>{article.title}</Text>
-                </Pressable>
+        <View style={styles.latestArticleContent}>
+          <View style={styles.latestArticleTop}>
+            <View style={styles.latestCategoryPill}>
+              <Text style={styles.latestCategoryPillText}>
+                {article.categoryLabel}
+              </Text>
+            </View>
 
-                <Pressable
-                  onPress={() => toggleFavorite(article.id)}
-                  style={styles.favoriteButton}
-                >
-                  <Text style={styles.favoriteIcon}>
-                    {isFavorite(article.id) ? "💖" : "🤍"}
-                  </Text>
-                </Pressable>
-              </View>
-            ))
+            <Ionicons name="chevron-forward" size={18} color="#AE8B86" />
+          </View>
+
+          <Text
+            style={styles.latestArticleTitle}
+            numberOfLines={3}
+            ellipsizeMode="tail"
+          >
+            {article.title}
+          </Text>
+        </View>
+      </Pressable>
+
+      <Pressable
+        onPress={() => toggleFavorite(article.id)}
+        style={styles.favoriteButtonModern}
+      >
+        <Text style={styles.favoriteIcon}>
+          {isFavorite(article.id) ? "💖" : "🤍"}
+        </Text>
+      </Pressable>
+    </View>
+  );
+})
           )}
         </View>
 
         {/* Haftanın Önerileri */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Haftanın Önerileri</Text>
-        </View>
-
-        <Pressable
-          style={styles.contentCard}
-          onPress={() => router.push("/weekly/movie")}
-        >
-          <View style={styles.weeklyRow}>
-            <Image
-              source={WEEKLY_ICONS.movie}
-              style={styles.weeklyIcon}
-              resizeMode="contain"
-            />
-            <Text style={styles.weeklyLabel}>Dizi / Film</Text>
+        <View style={styles.weeklyHomeSection}>
+          <View style={styles.weeklyHomeHeader}>
+            <Text style={styles.weeklyHomeTitle}>Haftanın Önerileri ✨</Text>
           </View>
-          <Text style={styles.contentTitle}>
-            {latestMovie?.teaser ?? "Bu hafta ilham veren bir yapım: ..."}
-          </Text>
-        </Pressable>
 
-        <Pressable
-          style={styles.contentCard}
-          onPress={() => router.push("/weekly/music")}
-        >
-          <View style={styles.weeklyRow}>
+          {/* Dizi / Film - yazı solda */}
+          <TouchableOpacity
+            style={styles.weeklyHomeCard}
+            onPress={() => router.push("/weekly/movie")}
+            activeOpacity={0.9}
+          >
             <Image
-              source={WEEKLY_ICONS.music}
-              style={styles.weeklyIcon}
-              resizeMode="contain"
+              source={WEEKLY_FEATURED_IMAGES.movie}
+              style={styles.weeklyHomeBg}
+              resizeMode="cover"
             />
-            <Text style={styles.weeklyLabel}>Müzik</Text>
-          </View>
-          <Text style={styles.contentTitle}>
-            {latestMusic?.teaser ?? "Ruhunu besleyecek bir müzik önerisi."}
-          </Text>
-        </Pressable>
 
-        <Pressable
-          style={styles.contentCard}
+            <View style={styles.weeklyHomeSoftOverlay} />
+
+            <View style={[styles.weeklyHomeTextPanel, styles.weeklyHomeTextPanelLeft]}>
+              <Text style={styles.weeklyHomeItemTitle} numberOfLines={2}>
+                Dizi/Film
+              </Text>
+
+              <Text style={styles.weeklyHomeTeaser} numberOfLines={3}>
+                {movieWeeklyTeaser}
+              </Text>
+            </View>
+
+            <View style={styles.weeklyHomeArrowRight}>
+              <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+            </View>
+          </TouchableOpacity>
+
+          {/* Müzik - yazı sağda */}
+          <TouchableOpacity
+            style={styles.weeklyHomeCard}
+            onPress={() => router.push("/weekly/music")}
+            activeOpacity={0.9}
+        >
+            <Image
+              source={WEEKLY_FEATURED_IMAGES.music}
+              style={styles.weeklyHomeBg}
+              resizeMode="cover"
+            />
+
+           <View style={styles.weeklyHomeSoftOverlay} />
+
+           <View style={[styles.weeklyHomeTextPanel, styles.weeklyHomeTextPanelRight]}>
+             <Text
+               style={[styles.weeklyHomeItemTitle, styles.weeklyHomeItemTitleMusic]}
+               numberOfLines={1}
+             >
+               Müzik
+             </Text>
+
+            <Text style={styles.weeklyHomeTeaser} numberOfLines={3}>
+              {musicWeeklyTeaser}
+            </Text>
+          </View>
+
+          <View style={[styles.weeklyHomeArrowLeft, styles.weeklyHomeArrowMusic]}>
+            <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+          </View>
+        </TouchableOpacity>
+
+        {/* Kitap - yazı solda */}
+        <TouchableOpacity
+          style={styles.weeklyHomeCard}
           onPress={() => router.push("/weekly/book")}
+          activeOpacity={0.9}
         >
-          <View style={styles.weeklyRow}>
-            <Image
-              source={WEEKLY_ICONS.book}
-              style={styles.weeklyIcon}
-              resizeMode="contain"
-            />
-            <Text style={styles.weeklyLabel}>Kitap</Text>
+          <Image
+            source={WEEKLY_FEATURED_IMAGES.book}
+            style={styles.weeklyHomeBg}
+            resizeMode="cover"
+          />
+
+          <View style={styles.weeklyHomeSoftOverlay} />
+
+          <View style={[styles.weeklyHomeTextPanel, styles.weeklyHomeTextPanelLeft]}>
+            <Text style={styles.weeklyHomeItemTitle} numberOfLines={2}>
+              Kitap
+            </Text>
+
+            <Text style={styles.weeklyHomeTeaser} numberOfLines={3}>
+              {bookWeeklyTeaser}
+            </Text>
           </View>
-          <Text style={styles.contentTitle}>
-            {latestBook?.teaser ?? "Sakin bir akşam için bir kitap."}
-          </Text>
-        </Pressable>
+
+          <View style={styles.weeklyHomeArrowRight}>
+            <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+          </View>
+        </TouchableOpacity>
+      </View>
 
         {/* Çiçekli minik not */}
         <View style={styles.flowerNote}>
@@ -1326,17 +1609,105 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#FFF7F3" },
-  scrollContent: { paddingHorizontal: 16, paddingBottom: 24 },
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#FFF8F7",
+  },
+
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+    position: "relative",
+  },
+
+  decorLayer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+
+  decorBlobLeft: {
+    position: "absolute",
+    top: 10,
+    left: -30,
+    width: 120,
+    height: 180,
+    backgroundColor: "#FCE9EE",
+    borderBottomRightRadius: 120,
+    borderTopRightRadius: 120,
+    opacity: 0.9,
+  },
+
+  decorBlobRight: {
+    position: "absolute",
+    top: 24,
+    right: -20,
+    width: 90,
+    height: 90,
+    backgroundColor: "#FDF1F4",
+    borderRadius: 45,
+    opacity: 0.85,
+  },
+
+  decorFlowerRight: {
+    position: "absolute",
+    top: 52,
+    right: 22,
+    fontSize: 28,
+    color: "#EAB7C9",
+    opacity: 0.75,
+  },
+
+  decorLeafLeft: {
+    position: "absolute",
+    top: 58,
+    left: 18,
+    fontSize: 20,
+    color: "#EAB7C9",
+    opacity: 0.6,
+  },
+
+  homeSearchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: "#F3F3F6",
+    paddingHorizontal: 14,
+    marginTop: 8,
+    marginBottom: 14,
+  },
+
+  homeSearchIcon: {
+    marginRight: 8,
+  },
+
+  homeSearchInput: {
+    flex: 1,
+    color: "#2F2626",
+    fontSize: 16,
+    paddingVertical: 0,
+  },
+
+  homeSearchClear: {
+    marginLeft: 8,
+  },
+
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#FFF7F3",
+    backgroundColor: "#FFF8F7",
   },
-  centerInline: { justifyContent: "center", alignItems: "center", paddingVertical: 12 },
 
-  // ✅ OTA
+  centerInline: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+
   otaCard: {
     padding: 12,
     borderRadius: 12,
@@ -1345,8 +1716,18 @@ const styles = StyleSheet.create({
     borderColor: "#000000",
     marginBottom: 12,
   },
-  otaTitle: { fontWeight: "800", marginBottom: 6, color: "#000000" },
-  otaMono: { fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", color: "#000000" },
+
+  otaTitle: {
+    fontWeight: "800",
+    marginBottom: 6,
+    color: "#000000",
+  },
+
+  otaMono: {
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    color: "#000000",
+  },
+
   otaBtn: {
     marginTop: 10,
     paddingVertical: 10,
@@ -1354,6 +1735,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#000000",
     alignItems: "center",
   },
+
   otaBtnSecondary: {
     marginTop: 8,
     paddingVertical: 10,
@@ -1361,11 +1743,31 @@ const styles = StyleSheet.create({
     backgroundColor: "#444444",
     alignItems: "center",
   },
-  otaBtnText: { color: "#FFFFFF", fontWeight: "800" },
 
-  onboardingContainer: { flex: 1, justifyContent: "center", padding: 24 },
-  welcomeTitle: { fontSize: 24, fontWeight: "700", marginBottom: 12, color: "#4A2E2A" },
-  welcomeSubtitle: { fontSize: 16, marginBottom: 24, color: "#6B4A44" },
+  otaBtnText: {
+    color: "#FFFFFF",
+    fontWeight: "800",
+  },
+
+  onboardingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    padding: 24,
+  },
+
+  welcomeTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    marginBottom: 12,
+    color: "#4A2E2A",
+  },
+
+  welcomeSubtitle: {
+    fontSize: 16,
+    marginBottom: 24,
+    color: "#6B4A44",
+  },
+
   input: {
     borderWidth: 1,
     borderColor: "#F3B6B3",
@@ -1377,26 +1779,33 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     color: "#4A2E2A",
   },
-  button: { backgroundColor: "#F3B6B3", paddingVertical: 12, borderRadius: 12, alignItems: "center" },
-  buttonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
 
-  greetingRow: { marginTop: 24, marginBottom: 16, flexDirection: "row", alignItems: "center" },
-  greeting: { fontSize: 22, fontWeight: "700", color: "#4A2E2A" },
-  profileLink: {
-    fontSize: 18,
-    color: "#B0756F",
+  button: {
+    backgroundColor: "#F3B6B3",
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+
+  buttonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
     fontWeight: "600",
-    textDecorationLine: "underline",
   },
 
-  headerLogo: {
-    width: 110,
-    height: 110,
-    alignSelf: "center",
-    marginTop: 16,
-    marginBottom: 8,
-    opacity: 0.95,
-  },
+  appLogoCrop: {
+  width: 90,
+  height: 90,
+  alignSelf: "center",
+  marginTop: 8,
+  marginBottom: 14,
+},
+
+appLogoCropImage: {
+  width: "100%",
+  height: "100%",
+},
+
   appLogoCircle: {
     width: 110,
     height: 110,
@@ -1411,15 +1820,175 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     overflow: "hidden",
   },
-  appLogoInner: { width: "110%", height: "110%" },
+
+  appLogoInner: {
+    width: "110%",
+    height: "110%",
+  },
+
+  headerLogo: {
+    width: 110,
+    height: 110,
+    alignSelf: "center",
+    marginTop: 16,
+    marginBottom: 8,
+    opacity: 0.95,
+  },
+
+  sponsorPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 28,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "#F2DFDA",
+    marginBottom: 16,
+    minWidth: 250,
+  },
+
+  sponsorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+    marginBottom: 14,
+  },
+
+  sponsorLogoCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#F3B6B3",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    marginRight: 14,
+  },
+
+  sponsorLogoInner: {
+    width: "123%",
+    height: "123%",
+  },
+
+  sponsorTextWrap: {
+    flex: 1,
+  },
+
+  sponsorTagline: {
+    fontSize: 12,
+    color: "#9A807B",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+
+  sponsorBrand: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#3D2C2A",
+    marginTop: 2,
+  },
+
+  sponsorRowText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#B0756F",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+
+  sponsorProfileColumn: {
+    alignItems: "flex-end",
+  },
+
+  sponsorBadge: {
+    alignItems: "flex-end",
+    marginBottom: 4,
+  },
+
+  sponsorTag: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#B0756F",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+
+  sponsorLogoSmall: {
+    width: 72,
+    height: 40,
+  },
+
+  greetingRow: {
+    marginBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  greeting: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#2F2626",
+  },
+
+  profileLink: {
+    fontSize: 18,
+    color: "#B0756F",
+    fontWeight: "600",
+    textDecorationLine: "underline",
+  },
+
+  profilePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D9CDC8",
+  },
+
+  profilePillText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#6F5A56",
+  },
 
   motivationCard: {
-    padding: 16,
+    backgroundColor: "#FFF7F7",
+    borderWidth: 1,
+    borderColor: "#F2DFDA",
     borderRadius: 16,
-    backgroundColor: "#FCE8E4",
-    marginBottom: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 14,
   },
-  motivationText: { fontSize: 16, color: "#5A3A35" },
+
+  quoteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  quoteMark: {
+    fontSize: 22,
+    color: "#8D6B66",
+    marginRight: 10,
+    lineHeight: 24,
+  },
+
+  motivationText: {
+    flex: 1,
+    fontSize: 15,
+    color: "#5A4744",
+    lineHeight: 22,
+  },
 
   contentCardRow: {
     flexDirection: "row",
@@ -1431,11 +2000,34 @@ const styles = StyleSheet.create({
     borderColor: "#F3B6B3",
     marginBottom: 10,
   },
-  favoriteButton: { paddingHorizontal: 8, paddingVertical: 4 },
-  favoriteIcon: { fontSize: 22 },
 
-  phaseMiniTitle: { fontSize: 16, fontWeight: "600", color: "#4A2E2A", marginBottom: 4 },
-  phaseMiniText: { fontSize: 14, color: "#5A3A35" },
+  favoriteButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+
+  favoriteIcon: {
+    fontSize: 22,
+  },
+
+  phaseMiniTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#413331",
+    marginBottom: 4,
+  },
+
+  phaseMiniText: {
+    fontSize: 14,
+    color: "#5A3A35",
+  },
+
+  phaseTitleText: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#D67997",
+    marginBottom: 6,
+  },
 
   periodCard: {
     padding: 10,
@@ -1445,65 +2037,364 @@ const styles = StyleSheet.create({
     borderColor: "#F3B6D0",
     marginBottom: 18,
   },
-  periodTitle: { fontSize: 18, fontWeight: "600", color: "#4A2E2A", marginBottom: 4 },
-  periodText: { fontSize: 14, color: "#5A3A35", marginBottom: 6 },
-  periodNext: { fontSize: 14, color: "#7A5852", marginBottom: 10 },
+
+  periodHeroCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#F2DFDA",
+    padding: 16,
+    marginBottom: 14,
+  },
+
+  periodHeroContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  periodHeroLeft: {
+    flex: 1,
+    paddingRight: 8,
+  },
+
+  periodHeroRight: {
+    width: 150,
+    alignItems: "center",
+  },
+
+  periodTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#2F2626",
+    marginBottom: 6,
+  },
+
+  periodText: {
+    fontSize: 14,
+    color: "#5A4744",
+    lineHeight: 21,
+    marginBottom: 14,
+  },
+
+  periodFallbackText: {
+    fontSize: 14,
+    color: "#5A4744",
+    lineHeight: 21,
+    marginBottom: 14,
+  },
+
+  periodNext: {
+    fontSize: 14,
+    color: "#7A5852",
+    marginBottom: 10,
+  },
+
+  periodRingOuter: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: "#FCE6EC",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+
+  periodRingMiddle: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: "#F4C6D2",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  periodRingInner: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  periodHeart: {
+    fontSize: 20,
+    color: "#C77286",
+  },
+
+  periodStatusLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#8D7873",
+    textAlign: "center",
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+
+  periodStatusValue: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#3D2C2A",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+
+  periodBadge: {
+    borderWidth: 1,
+    borderColor: "#E8D8D4",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#FFFDFC",
+  },
+
+  periodBadgeText: {
+    fontSize: 13,
+    color: "#7A615D",
+    fontWeight: "600",
+  },
+
   periodButton: {
     alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: "#F3B6D0",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: "#E96B8E",
   },
-  periodButtonText: { fontSize: 16, color: "#FFFFFF", fontWeight: "600" },
 
-  row: { flexDirection: "row", gap: 12, marginBottom: 20 },
+  periodButtonText: {
+    fontSize: 15,
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
+
+  row: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 20,
+  },
+
+  utilityRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 12,
+  },
+
   smallCard: {
     flex: 1,
-    padding: 12,
-    borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#F3B6B3",
+  padding: 12,
+  borderRadius: 16,
+  backgroundColor: "#FFFFFF",
+  borderWidth: 1,
+  borderColor: "#F2DFDA",
+  minHeight: 175,
+  overflow: "hidden",
+  position: "relative",
   },
-  smallCardTitle: { fontSize: 16, fontWeight: "600", marginBottom: 6, color: "#4A2E2A" },
-  smallCardText: { fontSize: 15, color: "#5A3A35", marginBottom: 8 },
+
+  smallCardTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 6,
+    color: "#2F2626",
+  },
+
+  smallCardText: {
+    fontSize: 14,
+    color: "#5A4744",
+    lineHeight: 20,
+    marginBottom: 4,
+  },
 
   waterRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 8,
+    marginTop: 6,
+    marginBottom: 10,
     gap: 12,
   },
+
   waterButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#F3B6B3",
+    borderColor: "#E7D6D2",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFF7F3",
+    backgroundColor: "#FFFFFF",
   },
-  waterButtonText: { fontSize: 14, color: "#4A2E2A" },
-  waterCountText: { fontSize: 20, fontWeight: "700", color: "#4A2E2A" },
+
+  waterButtonText: {
+    fontSize: 18,
+    color: "#4A2E2A",
+    fontWeight: "600",
+  },
+
+  waterCountText: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#2F2626",
+    minWidth: 28,
+    textAlign: "center",
+  },
 
   reminderButton: {
-    marginTop: 8,
-    paddingVertical: 6,
+    marginTop: "auto",
+    paddingVertical: 10,
     borderRadius: 12,
-    backgroundColor: "#F3B6B3",
+    backgroundColor: "#FFF3F0",
     alignItems: "center",
   },
-  reminderButtonText: { fontSize: 13, color: "#FFFFFF", fontWeight: "600" },
-  moveReminderButton: { marginTop: 20 },
 
-  section: { marginBottom: 20, marginTop: 4 },
-  sectionTitle: { fontSize: 18, fontWeight: "600", marginBottom: 12, color: "#4A2E2A" },
+  reminderButtonText: {
+    fontSize: 14,
+    color: "#FFFFFF",
+    fontWeight: "800",
+  },
 
-  menuStoriesContent: { paddingRight: 8 },
-  menuItem: { alignItems: "center", marginRight: 12 },
+  waterSmallCard: {
+    backgroundColor: "#F9FDFF",
+    borderColor: "#CFEAF8",
+  },
+
+  moveSmallCard: {
+    backgroundColor: "#FFF8FC",
+    borderColor: "#F3D6E8",
+  },
+
+  waterCardGlow: {
+    position: "absolute",
+    top: -36,
+    left: -36,
+    width: 150,
+    height: 150,
+    borderRadius: 999,
+    backgroundColor: "rgba(179, 232, 255, 0.22)",
+  },
+
+  waterCardWave: {
+    position: "absolute",
+    bottom: -26,
+    left: -18,
+    width: 150,
+    height: 76,
+    borderTopRightRadius: 120,
+    borderTopLeftRadius: 60,
+    borderBottomLeftRadius: 120,
+    borderBottomRightRadius: 20,
+    backgroundColor: "rgba(145, 220, 255, 0.16)",
+  },
+
+  moveCardGlow: {
+    position: "absolute",
+    top: -34,
+    right: -34,
+    width: 145,
+    height: 145,
+    borderRadius: 999,
+    backgroundColor: "rgba(243, 186, 227, 0.20)",
+  },
+
+  moveCardLeaf: {
+    position: "absolute",
+    bottom: 12,
+    right: 10,
+    width: 92,
+    height: 92,
+    borderRadius: 999,
+    backgroundColor: "rgba(245, 205, 234, 0.15)",
+  },
+
+  practiceCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F3ECFF",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E3D7FB",
+    padding: 16,
+    marginBottom: 18,
+    overflow: "hidden",
+  },
+
+  waterReminderButton: {
+    backgroundColor: "#ee8ca3",
+  },
+
+  moveReminderButton: {
+    marginTop: "auto",
+    backgroundColor: "#e58feb",
+  },
+
+  practiceTextWrap: {
+    flex: 1,
+    paddingRight: 10,
+  },
+
+  practiceTitle: {
+    fontSize: 19,
+    fontWeight: "700",
+    color: "#7352A2",
+    marginBottom: 6,
+  },
+
+  practiceText: {
+    fontSize: 14,
+    color: "#564A6A",
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+
+  practiceLink: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#7352A2",
+  },
+
+  practiceImage: {
+    width: 170,
+    height: 115,
+    marginLeft: 8,
+  },
+
+  practiceIconWrap: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    backgroundColor: "#E8DCF9",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 12,
+  },
+
+  practiceEmoji: {
+    fontSize: 34,
+  },
+
+  section: {
+    marginBottom: 20,
+    marginTop: 4,
+  },
+
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 12,
+    color: "#2F2626",
+  },
+
+  menuStoriesContent: {
+    paddingRight: 8,
+  },
+
+  menuItem: {
+    alignItems: "center",
+    marginRight: 12,
+  },
+
   menuCircle: {
     width: 88,
     height: 72,
@@ -1515,7 +2406,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#f0c6c6",
   },
-  menuIcon: { width: "100%", height: "100%" },
+
+  menuIcon: {
+    width: "100%",
+    height: "100%",
+  },
+
   menuLabel: {
     fontSize: 14,
     fontWeight: "700",
@@ -1532,20 +2428,43 @@ const styles = StyleSheet.create({
     borderColor: "#F3B6B3",
     marginBottom: 10,
   },
-  contentCategory: { fontSize: 15, fontWeight: "600", marginBottom: 4, color: "#B0756F" },
-  contentTitle: { fontSize: 16, color: "#4A2E2A" },
 
-  flowerNote: { marginTop: 8, marginBottom: 12 },
-  flowerText: { fontSize: 16, color: "#6B4A44", textAlign: "center" },
+  contentCategory: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 4,
+    color: "#B0756F",
+  },
+
+  contentTitle: {
+    fontSize: 16,
+    color: "#4A2E2A",
+  },
+
+  flowerNote: {
+    marginTop: 8,
+    marginBottom: 12,
+  },
+
+  flowerText: {
+    fontSize: 16,
+    color: "#6B4A44",
+    textAlign: "center",
+  },
 
   astroNotifyButton: {
     marginTop: 10,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: "#F3B6D0",
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "#F7AFC2",
     alignItems: "center",
   },
-  astroNotifyButtonText: { fontSize: 16, color: "#FFFFFF", fontWeight: "700" },
+
+  astroNotifyButtonText: {
+    fontSize: 17,
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
 
   latestIconWrap: {
     width: 28,
@@ -1556,55 +2475,355 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#F3B6B3",
   },
-  latestIcon: { width: "100%", height: "100%" },
-  latestCategoryText: { fontSize: 16, fontWeight: "700", color: "#B0756F" },
 
-  weeklyRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
-  weeklyIcon: { width: 30, height: 30 },
-  weeklyLabel: { fontSize: 16, fontWeight: "800", color: "#B0756F" },
-
-  homeAdContainer: { marginTop: 8, marginBottom: 4, alignItems: "center" },
-
-  sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-start" },
-  latestRowTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 6 },
-
-  sponsorRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 4,
-    marginBottom: 10,
+  latestIcon: {
+    width: "100%",
+    height: "100%",
   },
-  sponsorLogoCircle: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#F3B6B3",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
-    overflow: "hidden",
-  },
-  sponsorLogoInner: { width: "120%", height: "120%" },
-  sponsorRowText: {
-    fontSize: 14,
+
+  latestCategoryText: {
+    fontSize: 16,
     fontWeight: "700",
     color: "#B0756F",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
   },
 
-  sponsorProfileColumn: { alignItems: "flex-end" },
-  sponsorBadge: { alignItems: "flex-end", marginBottom: 4 },
-  sponsorTag: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#B0756F",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 2,
+  weeklyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
   },
-  sponsorLogoSmall: { width: 72, height: 40 },
+
+  weeklyIcon: {
+    width: 30,
+    height: 30,
+  },
+
+  weeklyLabel: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#B0756F",
+  },
+
+  homeAdContainer: {
+    marginTop: 8,
+    marginBottom: 4,
+    alignItems: "center",
+  },
+
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+  },
+
+  latestRowTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 6,
+  },
+
+  meditationCard: {
+  marginTop: 14,
+  marginHorizontal: 16,
+  minHeight: 190,
+  borderRadius: 24,
+  backgroundColor: "#F1EEF8",
+  borderWidth: 1,
+  borderColor: "#DDD4F2",
+  paddingLeft: 18,
+  paddingTop: 18,
+  paddingBottom: 18,
+  paddingRight: 18,
+  position: "relative",
+  overflow: "hidden",
+},
+
+meditationTextWrap: {
+  width: "52%",
+  zIndex: 2,
+},
+
+meditationTitle: {
+  fontSize: 18,
+  fontWeight: "700",
+  color: "#6F55AA",
+  lineHeight: 25,
+  marginBottom: 10,
+},
+
+meditationDescription: {
+  fontSize: 14,
+  lineHeight: 22,
+  color: "#5F5A6F",
+  marginBottom: 14,
+},
+
+meditationLink: {
+  fontSize: 15,
+  fontWeight: "700",
+  color: "#6F55AA",
+},
+
+meditationImage: {
+  position: "absolute",
+  right: 6,
+  bottom: 0,
+  width: 230,
+  height: 150,
+},
+
+featuredCalorieCard: {
+  height: 168,
+  borderRadius: 24,
+  overflow: "hidden",
+  marginTop: 8,
+  marginBottom: 6,
+  position: "relative",
+},
+
+featuredCalorieImage: {
+  width: "100%",
+  height: "100%",
+},
+
+featuredCalorieOverlay: {
+  ...StyleSheet.absoluteFillObject,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+  paddingHorizontal: 18,
+  paddingVertical: 16,
+},
+
+featuredCalorieTextBox: {
+  width: "64%",
+  backgroundColor: "rgba(255,255,255,0.74)",
+  borderRadius: 18,
+  paddingHorizontal: 14,
+  paddingVertical: 12,
+},
+
+featuredCalorieTextWrap: {
+  width: "62%",
+},
+
+featuredCalorieTitle: {
+  fontSize: 24,
+  fontWeight: "800",
+  color: "#5A3732",
+  marginBottom: 6,
+},
+
+featuredCalorieText: {
+  fontSize: 14,
+  lineHeight: 20,
+  color: "#4A2E2A",
+  fontWeight: "600",
+},
+
+featuredCalorieArrow: {
+  width: 42,
+  height: 42,
+  borderRadius: 21,
+  backgroundColor: "rgba(217,141,137,0.95)",
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+latestArticleCard: {
+  position: "relative",
+  marginBottom: 12,
+},
+
+latestArticlePressable: {
+  flexDirection: "row",
+  alignItems: "stretch",
+  backgroundColor: "#FFFFFF",
+  borderWidth: 1,
+  borderColor: "#F2DFDA",
+  borderRadius: 20,
+  overflow: "hidden",
+},
+
+latestArticleThumb: {
+  width: 112,
+  height: 112,
+},
+
+latestArticleContent: {
+  flex: 1,
+  paddingLeft: 14,
+  paddingRight: 64,
+  justifyContent: "center",
+},
+
+latestArticleTop: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+  marginBottom: 8,
+},
+
+latestCategoryPill: {
+  paddingHorizontal: 10,
+  paddingVertical: 6,
+  borderRadius: 999,
+  backgroundColor: "#FCEEEE",
+},
+
+latestCategoryPillText: {
+  fontSize: 12,
+  fontWeight: "700",
+  color: "#B0756F",
+},
+
+latestArticleTitle: {
+  fontSize: 16,
+  lineHeight: 24,
+  fontWeight: "700",
+  color: "#4E342E",
+  marginTop: 8,
+},
+
+favoriteButtonModern: {
+  position: "absolute",
+  right: 12,
+  bottom: 10,
+  width: 34,
+  height: 34,
+  borderRadius: 17,
+  backgroundColor: "rgba(255,255,255,0.95)",
+  alignItems: "center",
+  justifyContent: "center",
+  borderWidth: 1,
+  borderColor: "#F2DFDA",
+},
+
+weeklyHomeSection: {
+  marginTop: 4,
+  marginBottom: 18,
+},
+
+weeklyHomeHeader: {
+  marginBottom: 12,
+},
+
+weeklyHomeTitle: {
+  fontSize: 23,
+  fontWeight: "800",
+  color: "#3F2724",
+  letterSpacing: -0.2,
+},
+
+weeklyHomeCard: {
+  height: 178,
+  borderRadius: 24,
+  overflow: "hidden",
+  marginBottom: 14,
+  borderWidth: 1,
+  borderColor: "#F0CDC8",
+  backgroundColor: "#FFFFFF",
+  position: "relative",
+  shadowColor: "#D8A7A0",
+  shadowOpacity: 0.12,
+  shadowRadius: 16,
+  shadowOffset: { width: 0, height: 8 },
+  elevation: 3,
+},
+
+weeklyHomeBg: {
+  ...StyleSheet.absoluteFillObject,
+  width: "100%",
+  height: "100%",
+},
+
+weeklyHomeSoftOverlay: {
+  ...StyleSheet.absoluteFillObject,
+  backgroundColor: "rgba(255,255,255,0.04)",
+},
+
+weeklyHomeTextPanel: {
+  position: "absolute",
+  top: 14,
+  bottom: 14,
+  width: "58%",
+  borderRadius: 20,
+  backgroundColor: "rgba(255,255,255,0.64)",
+  paddingHorizontal: 14,
+  paddingVertical: 12,
+  justifyContent: "center",
+},
+
+weeklyHomeTextPanelRight: {
+  right: 14,
+},
+
+weeklyHomeTextPanelLeft: {
+  left: 14,
+},
+
+weeklyHomeArrowLeft: {
+  position: "absolute",
+  left: 18,
+  bottom: 18,
+  width: 42,
+  height: 42,
+  borderRadius: 21,
+  backgroundColor: "rgba(111,76,160,0.92)",
+  alignItems: "center",
+  justifyContent: "center",
+  shadowColor: "#6F4CA0",
+  shadowOpacity: 0.22,
+  shadowRadius: 9,
+  shadowOffset: { width: 0, height: 5 },
+  elevation: 4,
+},
+
+weeklyHomeArrowRight: {
+  position: "absolute",
+  right: 18,
+  bottom: 18,
+  width: 42,
+  height: 42,
+  borderRadius: 21,
+  backgroundColor: "rgba(111,76,160,0.92)",
+  alignItems: "center",
+  justifyContent: "center",
+  shadowColor: "#6F4CA0",
+  shadowOpacity: 0.22,
+  shadowRadius: 9,
+  shadowOffset: { width: 0, height: 5 },
+  elevation: 4,
+},
+
+weeklyHomeItemTitle: {
+  fontSize: 19,
+  lineHeight: 23,
+  fontWeight: "900",
+  color: "#3F246B",
+  marginBottom: 8,
+  textShadowColor: "rgba(255,255,255,0.55)",
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 2,
+},
+
+weeklyHomeItemTitleMusic: {
+  color: "#C94F65",
+},
+
+weeklyHomeTeaser: {
+  fontSize: 14,
+  lineHeight: 18,
+  color: "#2A1A18",
+  fontWeight: "800",
+  textShadowColor: "rgba(255,255,255,0.5)",
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 2,
+},
+
+weeklyHomeArrowMusic: {
+  backgroundColor: "rgba(217,94,114,0.92)",
+},
 });

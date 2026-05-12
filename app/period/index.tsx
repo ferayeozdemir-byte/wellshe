@@ -1,5 +1,6 @@
 // app/period/index.tsx
 
+import { trackEvent } from "@/lib/analytics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { Stack } from "expo-router";
@@ -20,15 +21,11 @@ import { Calendar } from "react-native-calendars";
 import AdBanner from "../../components/AdBanner";
 
 import {
-  formatDateTRFromISO,
-  formatRangeTR,
-  fromISODate,
   getCyclePhaseInfo,
   getNextPeriodStart,
   getOvulationInfo,
   isFutureISODate,
   parseTRDateToISO,
-  toISODate,
 } from "../../lib/cycle";
 
 type DateObject = { dateString: string };
@@ -45,6 +42,8 @@ type PeriodSettings = {
 type CycleNotificationIds = {
   before?: string;
   start?: string;
+  late1?: string;
+  late7?: string;
 };
 
 type MoodLevel = "low" | "neutral" | "good" | "great";
@@ -55,6 +54,13 @@ type MoodDay = {
 };
 
 type MoodData = Record<string, MoodDay>;
+
+type LateState = {
+  isLate: boolean;
+  lateDays: number;
+  predictedStartIso: string | null;
+  shouldShowPregnancyNote: boolean;
+};
 
 const PERIOD_SETTINGS_KEY = "wellshe_period_settings";
 const PERIOD_LOGS_KEY = "wellshe_period_logs";
@@ -71,125 +77,32 @@ const PERIOD_DEBUG_KEYS = [
   "periodLogs",
 ];
 
-function safeJsonParse<T = any>(raw: string | null): T | null {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
-
 // ✅ Default ayarlar
 const DEFAULT_SETTINGS: PeriodSettings = {
   averageCycleLength: 28,
   periodLength: 5,
 };
 
-function getMarkedDates(
-  logs: PeriodLog[],
-  settings: PeriodSettings | null
-): Record<string, any> {
-  const marked: Record<string, any> = {};
-  if (!settings) return marked;
+const LATE_REMINDER_DAYS = 1;
+const PREGNANCY_CHECK_REMINDER_DAYS = 7;
 
-  const periodLength = settings.periodLength;
-
-  // Geçmiş regl günleri
-  logs.forEach((log) => {
-    const start = fromISODate(log.startDate);
-    for (let i = 0; i < periodLength; i++) {
-      const d = new Date(start);
-      d.setDate(d.getDate() + i);
-      const key = toISODate(d);
-      marked[key] = {
-        ...(marked[key] || {}),
-        selected: true,
-        selectedColor: "#FF6B81",
-      };
-    }
-  });
-
-  // Tahmini sonraki regl günleri
-  const next = getNextPeriodStart(logs, settings);
-  if (next) {
-    const nextStart = fromISODate(next);
-    for (let i = 0; i < periodLength; i++) {
-      const d = new Date(nextStart);
-      d.setDate(d.getDate() + i);
-      const key = toISODate(d);
-      if (!marked[key]) {
-        marked[key] = { selected: true, selectedColor: "#C4A1FF" };
-      }
-    }
-  }
-
-  // Ovülasyon + verimli günler
-  const ovInfo = getOvulationInfo(logs, settings);
-  if (ovInfo.ovulationDate && ovInfo.windowStart && ovInfo.windowEnd) {
-    const ws = fromISODate(ovInfo.windowStart);
-    const we = fromISODate(ovInfo.windowEnd);
-
-    for (
-      let d = new Date(ws.getTime());
-      d.getTime() <= we.getTime();
-      d.setDate(d.getDate() + 1)
-    ) {
-      const key = toISODate(d);
-      if (!marked[key]) {
-        marked[key] = { selected: true, selectedColor: "#FFE3F0" };
-      }
-    }
-
-    const ovKey = ovInfo.ovulationDate;
-    marked[ovKey] = {
-      ...(marked[ovKey] || {}),
-      marked: true,
-      dotColor: "#FF9EC4",
-    };
-  }
-
-  return marked;
-}
-
-async function clearCycleNotifications() {
-  try {
-    const json = await AsyncStorage.getItem(CYCLE_NOTIFICATION_IDS_KEY);
-    if (!json) return;
-
-    const ids: CycleNotificationIds = JSON.parse(json);
-    if (ids.before) {
-      try {
-        await Notifications.cancelScheduledNotificationAsync(ids.before);
-      } catch (e) {
-        console.log("before notification cancel error:", e);
-      }
-    }
-    if (ids.start) {
-      try {
-        await Notifications.cancelScheduledNotificationAsync(ids.start);
-      } catch (e) {
-        console.log("start notification cancel error:", e);
-      }
-    }
-  } catch (e) {
-    console.log("clearCycleNotifications error:", e);
-  } finally {
-    await AsyncStorage.removeItem(CYCLE_NOTIFICATION_IDS_KEY);
-  }
-}
-
-async function ensureAndroidChannel() {
-  if (Platform.OS !== "android") return;
-  try {
-    await Notifications.setNotificationChannelAsync("reminders", {
-      name: "Reminders",
-      importance: Notifications.AndroidImportance.DEFAULT,
-    });
-  } catch (e) {
-    console.log("ensureAndroidChannel error:", e);
-  }
-}
+const COLORS = {
+  bg: "#FFF8F5",
+  text: "#4A2E2A",
+  textSoft: "#6D5854",
+  textMuted: "#8B7772",
+  border: "#F2DFD8",
+  card: "#FFFFFF",
+  primary: "#D77878",
+  primaryDark: "#B75F61",
+  period: "#FF7D8E",
+  fertile: "#FFE6F0",
+  ovulation: "#FF98BA",
+  today: "#CDA6A6",
+  chip: "#FFF3F0",
+  heroBg: "#FFF0EC",
+  lateBg: "#FFF4F1",
+};
 
 const MOOD_OPTIONS: { key: MoodLevel; label: string; emoji: string }[] = [
   { key: "low", label: "Düşük", emoji: "🌧️" },
@@ -211,6 +124,343 @@ const SYMPTOMS = [
   "Tatlı isteği",
 ];
 
+function safeJsonParse<T = any>(raw: string | null): T | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function fromLocalISODate(iso: string, hour = 12) {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(year, month - 1, day, hour, 0, 0, 0);
+}
+
+function toLocalISODate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatLocalISODateTR(iso: string) {
+  const [year, month, day] = iso.split("-");
+  return `${day}.${month}.${year}`;
+}
+
+function formatLocalRangeTR(startIso: string, endIso: string) {
+  return `${formatLocalISODateTR(startIso)}\n${formatLocalISODateTR(endIso)}`;
+}
+
+function differenceInDays(a: Date, b: Date) {
+  const aCopy = new Date(a);
+  const bCopy = new Date(b);
+  aCopy.setHours(0, 0, 0, 0);
+  bCopy.setHours(0, 0, 0, 0);
+  return Math.round((aCopy.getTime() - bCopy.getTime()) / 86400000);
+}
+
+function sortLogs(logs: PeriodLog[]) {
+  return [...logs].sort((a, b) => a.startDate.localeCompare(b.startDate));
+}
+
+function normalizeLogs(logs: PeriodLog[]) {
+  const seen = new Set<string>();
+  const unique = sortLogs(
+    logs.filter((log) => {
+      if (!log?.startDate || seen.has(log.startDate)) return false;
+      seen.add(log.startDate);
+      return true;
+    })
+  );
+  return unique;
+}
+
+/**
+ * Yeni gerçek döngü başladığında kullanılır.
+ * Yakın tarihte yanlışlıkla oluşturulmuş son kaydı düzeltir,
+ * aksi halde yeni döngü olarak ekler.
+ */
+function upsertPeriodLog(
+  logs: PeriodLog[],
+  startDate: string,
+  periodLength: number
+): PeriodLog[] {
+  const normalized = normalizeLogs(logs);
+  const target = fromLocalISODate(startDate);
+  const replaceWindow = Math.max(periodLength, 5);
+
+  let replaced = false;
+
+  const nextLogs = normalized.map((log) => {
+    const diff = Math.abs(
+      differenceInDays(fromLocalISODate(log.startDate), target)
+    );
+    if (!replaced && diff <= replaceWindow) {
+      replaced = true;
+      return { startDate };
+    }
+    return log;
+  });
+
+  if (!replaced) {
+    nextLogs.push({ startDate });
+  }
+
+  return normalizeLogs(nextLogs);
+}
+
+/**
+ * Takvim veya input ile "son regl başlangıcını" düzeltirken kullanılır.
+ * Geçmişin tamamını çoğaltmaz, sadece en son kaydı günceller.
+ */
+function replaceLatestPeriodLog(logs: PeriodLog[], startDate: string): PeriodLog[] {
+  const normalized = normalizeLogs(logs);
+
+  if (normalized.length === 0) {
+    return [{ startDate }];
+  }
+
+  const logsWithoutLatest = normalized.slice(0, -1);
+  return normalizeLogs([...logsWithoutLatest, { startDate }]);
+}
+
+function getLearnedCycleLength(logs: PeriodLog[], fallback: number): number {
+  const normalized = normalizeLogs(logs);
+
+  // Çok erken öğrenmeye başlamasın.
+  if (normalized.length < 3) return fallback;
+
+  const intervals: number[] = [];
+
+  for (let i = 1; i < normalized.length; i++) {
+    const prev = fromLocalISODate(normalized[i - 1].startDate);
+    const curr = fromLocalISODate(normalized[i].startDate);
+    const diff = differenceInDays(curr, prev);
+
+    // Aşırı kısa / aşırı uzun farklar genelde hatalı girişten gelir.
+    if (diff >= 15 && diff <= 60) {
+      intervals.push(diff);
+    }
+  }
+
+  // En az 2 tamamlanmış aralık olmadan öğrenme yapmasın.
+  if (intervals.length < 2) return fallback;
+
+  const recentIntervals = intervals.slice(-6);
+  const average =
+    recentIntervals.reduce((sum, value) => sum + value, 0) /
+    recentIntervals.length;
+
+  return Math.round(average);
+}
+
+function getEffectiveSettings(
+  settings: PeriodSettings | null,
+  logs: PeriodLog[]
+): PeriodSettings | null {
+  if (!settings) return null;
+
+  return {
+    ...settings,
+    averageCycleLength: getLearnedCycleLength(
+      logs,
+      settings.averageCycleLength || DEFAULT_SETTINGS.averageCycleLength
+    ),
+  };
+}
+
+function getLateState(
+  logs: PeriodLog[],
+  settings: PeriodSettings | null,
+  todayIso: string
+): LateState {
+  const effectiveSettings = getEffectiveSettings(settings, logs);
+  if (!effectiveSettings || logs.length === 0) {
+    return {
+      isLate: false,
+      lateDays: 0,
+      predictedStartIso: null,
+      shouldShowPregnancyNote: false,
+    };
+  }
+
+  const predictedStartIso = getNextPeriodStart(logs, effectiveSettings);
+  if (!predictedStartIso) {
+    return {
+      isLate: false,
+      lateDays: 0,
+      predictedStartIso: null,
+      shouldShowPregnancyNote: false,
+    };
+  }
+
+  const lateDays = differenceInDays(
+    fromLocalISODate(todayIso),
+    fromLocalISODate(predictedStartIso)
+  );
+
+  return {
+    isLate: lateDays > 0,
+    lateDays: Math.max(lateDays, 0),
+    predictedStartIso,
+    shouldShowPregnancyNote: lateDays >= PREGNANCY_CHECK_REMINDER_DAYS,
+  };
+}
+
+function getMarkedDates(
+  logs: PeriodLog[],
+  settings: PeriodSettings | null
+): Record<string, any> {
+  const marked: Record<string, any> = {};
+  const effectiveSettings = getEffectiveSettings(settings, logs);
+  if (!effectiveSettings) return marked;
+
+  const periodLength = effectiveSettings.periodLength;
+  const normalizedLogs = normalizeLogs(logs);
+
+  // Geçmiş regl günleri
+  normalizedLogs.forEach((log) => {
+    const start = fromLocalISODate(log.startDate);
+    for (let i = 0; i < periodLength; i++) {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i);
+      const key = toLocalISODate(d);
+      marked[key] = {
+        ...(marked[key] || {}),
+        selected: true,
+        selectedColor: COLORS.period,
+      };
+    }
+  });
+
+  // Tahmini sonraki regl günleri
+  const next = getNextPeriodStart(normalizedLogs, effectiveSettings);
+  if (next) {
+    const nextStart = fromLocalISODate(next);
+    for (let i = 0; i < periodLength; i++) {
+      const d = new Date(nextStart);
+      d.setDate(d.getDate() + i);
+      const key = toLocalISODate(d);
+      if (!marked[key]) {
+        marked[key] = { selected: true, selectedColor: "#F7D3E2" };
+      }
+    }
+  }
+
+  // Ovülasyon + verimli günler
+  const ovInfo = getOvulationInfo(normalizedLogs, effectiveSettings);
+  if (ovInfo.ovulationDate && ovInfo.windowStart && ovInfo.windowEnd) {
+    const ws = fromLocalISODate(ovInfo.windowStart);
+    const we = fromLocalISODate(ovInfo.windowEnd);
+
+    for (
+      let d = new Date(ws.getTime());
+      d.getTime() <= we.getTime();
+      d.setDate(d.getDate() + 1)
+    ) {
+      const key = toLocalISODate(d);
+      if (!marked[key]) {
+        marked[key] = { selected: true, selectedColor: COLORS.fertile };
+      }
+    }
+
+    const ovKey = ovInfo.ovulationDate;
+    marked[ovKey] = {
+      ...(marked[ovKey] || {}),
+      marked: true,
+      dotColor: COLORS.ovulation,
+    };
+  }
+
+  return marked;
+}
+
+async function clearCycleNotifications() {
+  try {
+    const json = await AsyncStorage.getItem(CYCLE_NOTIFICATION_IDS_KEY);
+    if (!json) return;
+
+    const ids: CycleNotificationIds = JSON.parse(json);
+    const notificationIds = Object.values(ids).filter(Boolean) as string[];
+
+    for (const id of notificationIds) {
+      try {
+        await Notifications.cancelScheduledNotificationAsync(id);
+      } catch (e) {
+        console.log("notification cancel error:", e);
+      }
+    }
+  } catch (e) {
+    console.log("clearCycleNotifications error:", e);
+  } finally {
+    await AsyncStorage.removeItem(CYCLE_NOTIFICATION_IDS_KEY);
+  }
+}
+
+async function ensureAndroidChannel() {
+  if (Platform.OS !== "android") return;
+  try {
+    await Notifications.setNotificationChannelAsync("reminders", {
+      name: "Reminders",
+      importance: Notifications.AndroidImportance.DEFAULT,
+    });
+  } catch (e) {
+    console.log("ensureAndroidChannel error:", e);
+  }
+}
+
+function LegendItem({
+  type,
+  label,
+}: {
+  type: "period" | "fertile" | "ovulation" | "today";
+  label: string;
+}) {
+  return (
+    <View style={styles.legendItem}>
+      {type === "period" ? (
+        <View style={[styles.legendDot, styles.legendPeriod]} />
+      ) : null}
+      {type === "fertile" ? (
+        <View style={[styles.legendDot, styles.legendFertile]} />
+      ) : null}
+      {type === "ovulation" ? (
+        <View
+          style={[
+            styles.legendDot,
+            styles.legendFertile,
+            styles.legendOvulationWrap,
+          ]}
+        >
+          <View style={styles.legendOvulationDot} />
+        </View>
+      ) : null}
+      {type === "today" ? (
+        <View style={[styles.legendDot, styles.legendToday]} />
+      ) : null}
+      <Text style={styles.legendLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.metricCard}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={styles.metricValue}>{value}</Text>
+    </View>
+  );
+}
+
 function PeriodBannerAd() {
   return (
     <View style={styles.adContainer}>
@@ -220,7 +470,6 @@ function PeriodBannerAd() {
 }
 
 export default function PeriodScreen() {
-  // ✅ 1) TÜM STATE’LER EN ÜSTTE (hook sırası garanti)
   const [settings, setSettings] = useState<PeriodSettings | null>(null);
   const [logs, setLogs] = useState<PeriodLog[]>([]);
   const [moodData, setMoodData] = useState<MoodData>({});
@@ -229,6 +478,7 @@ export default function PeriodScreen() {
   const [inputLastStartDate, setInputLastStartDate] = useState("");
   const [inputAverageCycle, setInputAverageCycle] = useState("28");
   const [inputPeriodLength, setInputPeriodLength] = useState("5");
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
 
   // 🧪 Debug panel state
   const [debugVisible, setDebugVisible] = useState(false);
@@ -237,7 +487,15 @@ export default function PeriodScreen() {
   const [titleTapCount, setTitleTapCount] = useState(0);
   const [titleTapTimer, setTitleTapTimer] = useState<any>(null);
 
-  const todayKey = toISODate(new Date());
+  const todayKey = toLocalISODate(new Date());
+
+  useEffect(() => {
+    void trackEvent({
+      event_name: "screen_view",
+      screen_name: "period",
+    });
+  }, []);
+
   const openUrl = async (url: string) => {
     try {
       await Linking.openURL(url);
@@ -245,8 +503,118 @@ export default function PeriodScreen() {
       Alert.alert("Hata", "Bağlantı açılamadı.");
     }
   };
+
   const todayMood = moodData[todayKey]?.mood;
   const todaySymptoms = moodData[todayKey]?.symptoms ?? [];
+
+  const normalizedLogs = useMemo(() => normalizeLogs(logs), [logs]);
+
+  const effectiveSettings = useMemo(
+    () => getEffectiveSettings(settings, normalizedLogs),
+    [settings, normalizedLogs]
+  );
+
+  const learnedCycleLength =
+    effectiveSettings?.averageCycleLength ?? DEFAULT_SETTINGS.averageCycleLength;
+
+  const nextPeriod = useMemo(
+    () => getNextPeriodStart(normalizedLogs, effectiveSettings),
+    [normalizedLogs, effectiveSettings]
+  );
+
+  const ovulationInfo = useMemo(
+    () => getOvulationInfo(normalizedLogs, effectiveSettings),
+    [normalizedLogs, effectiveSettings]
+  );
+
+  const markedDates = useMemo(
+    () => getMarkedDates(normalizedLogs, settings),
+    [normalizedLogs, settings]
+  );
+
+  const phaseInfo = useMemo(
+    () => getCyclePhaseInfo(normalizedLogs, effectiveSettings),
+    [normalizedLogs, effectiveSettings]
+  );
+
+  const lateState = useMemo(
+    () => getLateState(normalizedLogs, settings, todayKey),
+    [normalizedLogs, settings, todayKey]
+  );
+
+  const lastStartIso =
+    normalizedLogs.length > 0
+      ? normalizedLogs[normalizedLogs.length - 1].startDate
+      : null;
+
+  const lastStartTR = lastStartIso ? formatLocalISODateTR(lastStartIso) : null;
+  const nextPeriodTR = nextPeriod ? formatLocalISODateTR(nextPeriod) : null;
+
+  const ovulationDateTR = ovulationInfo.ovulationDate
+    ? formatLocalISODateTR(ovulationInfo.ovulationDate)
+    : null;
+
+  const fertileRangeTR =
+    ovulationInfo.windowStart && ovulationInfo.windowEnd
+      ? formatLocalRangeTR(ovulationInfo.windowStart, ovulationInfo.windowEnd)
+      : null;
+
+  const cycleDay = lastStartIso
+    ? Math.max(
+        differenceInDays(
+          fromLocalISODate(todayKey),
+          fromLocalISODate(lastStartIso)
+        ) + 1,
+        1
+      )
+    : null;
+
+  const isCurrentlyInPeriod =
+    cycleDay !== null &&
+    cycleDay >= 1 &&
+    cycleDay <=
+      (effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength);
+
+  const heroEyebrow = isCurrentlyInPeriod
+    ? "ŞU ANDA"
+    : lateState.isLate
+    ? "BEKLENEN TARİH GEÇTİ"
+    : "TAHMİNİ BİR SONRAKİ REGLİNE";
+
+  const heroMainText = useMemo(() => {
+    if (isCurrentlyInPeriod && cycleDay) {
+      return `Reglin ${cycleDay}. günü`;
+    }
+
+    if (!nextPeriod) return "Henüz hesaplanamıyor";
+
+    const daysUntil = differenceInDays(
+      fromLocalISODate(nextPeriod),
+      fromLocalISODate(todayKey)
+    );
+
+    if (lateState.isLate) {
+      return `${lateState.lateDays} gün gecikme`;
+    }
+
+    if (daysUntil === 0) {
+      return "Bugün başlayabilir";
+    }
+
+    if (daysUntil === 1) {
+      return "1 gün kaldı";
+    }
+
+    return `${daysUntil} gün kaldı`;
+  }, [isCurrentlyInPeriod, cycleDay, nextPeriod, todayKey, lateState]);
+
+  const settingsSummaryLine = `${learnedCycleLength} günlük döngü · ${
+    effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength
+  } gün regl süresi`;
+
+  const settingsLastPeriodLine = lastStartTR
+    ? `Son regl: ${lastStartTR}`
+    : "Son regl tarihi henüz yok";
 
   const buildDebugDump = async () => {
     try {
@@ -266,10 +634,6 @@ export default function PeriodScreen() {
       const settingsParsed = safeJsonParse(settingsRaw);
       const logsParsed = safeJsonParse(logsRaw);
 
-      const phase = getCyclePhaseInfo(logs, settings);
-      const next = getNextPeriodStart(logs, settings);
-      const ovu = getOvulationInfo(logs, settings);
-
       const payload = {
         now: new Date().toISOString(),
         keysFoundNonEmpty: existing,
@@ -287,16 +651,19 @@ export default function PeriodScreen() {
         },
         inMemoryState: {
           settings,
+          effectiveSettings,
+          learnedCycleLength,
           logs,
+          lateState,
           inputLastStartDate,
           inputAverageCycle,
           inputPeriodLength,
         },
         computed: {
-          phase,
-          nextPeriodIso: next,
-          nextPeriodTR: next ? formatDateTRFromISO(next) : null,
-          ovulationInfo: ovu,
+          phaseInfo,
+          nextPeriodIso: nextPeriod,
+          nextPeriodTR,
+          ovulationInfo,
         },
         allKeysRaw: pairs.reduce((acc, [k, v]) => {
           acc[k] = v;
@@ -338,7 +705,6 @@ export default function PeriodScreen() {
     }
   };
 
-  // ✅ settings storage garanti eden helper
   const ensureSettingsStored = async (): Promise<PeriodSettings> => {
     if (settings) return settings;
 
@@ -390,11 +756,11 @@ export default function PeriodScreen() {
         }
 
         if (logsJson) {
-          const parsedLogs: PeriodLog[] = JSON.parse(logsJson);
+          const parsedLogs: PeriodLog[] = normalizeLogs(JSON.parse(logsJson));
           setLogs(parsedLogs);
           if (parsedLogs.length > 0) {
             setInputLastStartDate(
-              formatDateTRFromISO(parsedLogs[parsedLogs.length - 1].startDate)
+              formatLocalISODateTR(parsedLogs[parsedLogs.length - 1].startDate)
             );
           }
         }
@@ -410,134 +776,8 @@ export default function PeriodScreen() {
       }
     };
 
-    loadData();
+    void loadData();
   }, []);
-
-  const nextPeriod = useMemo(
-    () => getNextPeriodStart(logs, settings),
-    [logs, settings]
-  );
-
-  const ovulationInfo = useMemo(
-    () => getOvulationInfo(logs, settings),
-    [logs, settings]
-  );
-
-  const markedDates = useMemo(
-    () => getMarkedDates(logs, settings),
-    [logs, settings]
-  );
-
-  const phaseInfo = useMemo(
-    () => getCyclePhaseInfo(logs, settings),
-    [logs, settings]
-  );
-
-  const handleSaveSettings = async () => {
-    if (!inputAverageCycle || !inputPeriodLength) {
-      Alert.alert("Eksik bilgi", "Lütfen döngü süresi ve regl süresini gir.");
-      return;
-    }
-
-    const avg = parseInt(inputAverageCycle, 10);
-    const len = parseInt(inputPeriodLength, 10);
-
-    if (isNaN(avg) || isNaN(len) || avg <= 0 || len <= 0) {
-      Alert.alert(
-        "Geçersiz değer",
-        "Döngü süresi ve regl süresi pozitif sayı olmalı."
-      );
-      return;
-    }
-
-    const trimmedDate = inputLastStartDate.trim();
-    let isoFromInput: string | null = null;
-
-    if (trimmedDate !== "") {
-      isoFromInput = parseTRDateToISO(trimmedDate);
-      if (!isoFromInput) {
-        Alert.alert(
-          "Tarih formatı hatalı",
-          "Lütfen tarihi 24.11.2025 şeklinde (GG.AA.YYYY) gir ya da takvimden seç."
-        );
-        return;
-      }
-      if (isFutureISODate(isoFromInput)) {
-        Alert.alert(
-          "Geçersiz tarih",
-          "Son regl başlangıcı ileri bir tarih olamaz. Lütfen bugünü veya geçmiş bir günü gir."
-        );
-        return;
-      }
-    }
-
-    const newSettings: PeriodSettings = {
-      averageCycleLength: avg,
-      periodLength: len,
-    };
-    setSettings(newSettings);
-    await AsyncStorage.setItem(PERIOD_SETTINGS_KEY, JSON.stringify(newSettings));
-
-    let effectiveLogs = logs;
-
-    if (isoFromInput) {
-      const logsArr: PeriodLog[] = [{ startDate: isoFromInput }];
-      setLogs(logsArr);
-      await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(logsArr));
-      effectiveLogs = logsArr;
-    }
-
-    await scheduleCycleNotifications(effectiveLogs, newSettings, {
-      silent: true,
-    });
-    Alert.alert("Kaydedildi", "Döngü ayarların güncellendi.");
-  };
-
-  const handleTodayStarted = async () => {
-    const todayIso = toISODate(new Date());
-
-    const effSettings = await ensureSettingsStored();
-
-    const newLogs: PeriodLog[] = [{ startDate: todayIso }];
-    setLogs(newLogs);
-    setInputLastStartDate(formatDateTRFromISO(todayIso));
-    await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(newLogs));
-
-    await scheduleCycleNotifications(newLogs, effSettings, { silent: true });
-
-    Alert.alert(
-      "Kaydedildi",
-      "Bugünü regl başlangıcı olarak işaretledin. Tahmini sonraki tarih ve bildirimler bu güne göre güncellendi."
-    );
-  };
-
-  const handleCalendarDayPress = async (day: DateObject) => {
-    try {
-      const pickedIso = day.dateString;
-
-      if (isFutureISODate(pickedIso)) {
-        Alert.alert(
-          "Geçersiz tarih",
-          "Son regl başlangıcı ileri bir tarih olamaz. Lütfen bugünü veya geçmiş bir günü seç."
-        );
-        return;
-      }
-
-      const effSettings = await ensureSettingsStored();
-
-      setInputLastStartDate(formatDateTRFromISO(pickedIso));
-
-      const newLogs: PeriodLog[] = [{ startDate: pickedIso }];
-      setLogs(newLogs);
-
-      await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(newLogs));
-
-      await scheduleCycleNotifications(newLogs, effSettings, { silent: true });
-    } catch (e) {
-      console.log("handleCalendarDayPress save error:", e);
-      Alert.alert("Hata", "Tarih kaydedilemedi. Lütfen tekrar dene.");
-    }
-  };
 
   const scheduleCycleNotifications = async (
     baseLogs: PeriodLog[],
@@ -551,14 +791,15 @@ export default function PeriodScreen() {
         if (!silent) {
           Alert.alert(
             "Eksik bilgi",
-            "Önce son regl başlangıcını ve döngü süreni kaydetmelisin."
+            "Önce son regl başlangıcını ve regl süreni kaydetmelisin."
           );
         }
         return;
       }
 
-      const next = getNextPeriodStart(baseLogs, baseSettings);
-      if (!next) {
+      const effective = getEffectiveSettings(baseSettings, baseLogs);
+      const next = getNextPeriodStart(baseLogs, effective);
+      if (!effective || !next) {
         if (!silent) {
           Alert.alert(
             "Hesaplanamıyor",
@@ -568,21 +809,17 @@ export default function PeriodScreen() {
         return;
       }
 
-      const nextDate = fromISODate(next);
+      const nextDate = fromLocalISODate(next, 9);
       const now = new Date();
-
-      if (nextDate <= now) {
-        if (!silent) {
-          Alert.alert(
-            "Tarih geçmiş",
-            "Tahmini regl tarihi geçmiş görünüyor. Lütfen son regl başlangıcını güncelle."
-          );
-        }
-        return;
-      }
 
       const beforeDate = new Date(nextDate);
       beforeDate.setDate(beforeDate.getDate() - 2);
+
+      const late1Date = new Date(nextDate);
+      late1Date.setDate(late1Date.getDate() + LATE_REMINDER_DAYS);
+
+      const late7Date = new Date(nextDate);
+      late7Date.setDate(late7Date.getDate() + PREGNANCY_CHECK_REMINDER_DAYS);
 
       const existing = await Notifications.getPermissionsAsync();
       let finalStatus = existing.status;
@@ -624,26 +861,63 @@ export default function PeriodScreen() {
         ids.before = beforeId;
       }
 
-      const startId = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: "Bugün regl başlayabilir 🌙",
-          body: "Döngünün yeni bir aşamasına giriyor olabilirsin. Bedenine kulak vermeyi unutma.",
-          sound: false,
-          ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
-        },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DATE,
-          date: nextDate,
-        },
-      });
-      ids.start = startId;
+      if (nextDate > now) {
+        const startId = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "Bugün regl başlayabilir 🌙",
+            body: "Döngünün yeni bir aşamasına giriyor olabilirsin. Bedenine kulak vermeyi unutma.",
+            sound: false,
+            ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: nextDate,
+          },
+        });
+        ids.start = startId;
+      }
 
-      await AsyncStorage.setItem(CYCLE_NOTIFICATION_IDS_KEY, JSON.stringify(ids));
+      if (late1Date > now) {
+        const late1Id = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "Regl hatırlatması",
+            body: "Reglin gecikmiş olabilir. Başladığında kaydetmeyi unutma.",
+            sound: false,
+            ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: late1Date,
+          },
+        });
+        ids.late1 = late1Id;
+      }
+
+      if (late7Date > now) {
+        const late7Id = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "Kısa bir kontrol iyi olabilir",
+            body: "Reglin hâlâ başlamadıysa ve gebelik ihtimali varsa test yapmayı düşünebilirsin.",
+            sound: false,
+            ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: late7Date,
+          },
+        });
+        ids.late7 = late7Id;
+      }
+
+      await AsyncStorage.setItem(
+        CYCLE_NOTIFICATION_IDS_KEY,
+        JSON.stringify(ids)
+      );
 
       if (!silent) {
         Alert.alert(
           "Bildirimler ayarlandı",
-          "Bu döngü için regl bildirimleri planlandı. Son regl tarihini güncellediğinde bildirimler otomatik olarak güncellenecek."
+          "Bu döngü için hatırlatıcılar planlandı. Son regl tarihini güncellediğinde bildirimler otomatik yenilenir."
         );
       }
     } catch (e: any) {
@@ -659,8 +933,141 @@ export default function PeriodScreen() {
     }
   };
 
+  const persistLogsAndReschedule = async (
+    nextLogs: PeriodLog[],
+    nextSettings: PeriodSettings
+  ) => {
+    const normalized = normalizeLogs(nextLogs);
+    setLogs(normalized);
+    await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(normalized));
+    await scheduleCycleNotifications(normalized, nextSettings, {
+      silent: true,
+    });
+  };
+
+  const resetPeriodHistory = async () => {
+    try {
+      await AsyncStorage.removeItem(PERIOD_LOGS_KEY);
+      await clearCycleNotifications();
+      setLogs([]);
+      setInputLastStartDate("");
+      setSettingsModalVisible(false);
+
+      Alert.alert(
+        "Temizlendi",
+        "Regl geçmişi sıfırlandı. Ayarların korundu."
+      );
+    } catch (e) {
+      console.log("resetPeriodHistory error:", e);
+      Alert.alert("Hata", "Geçmiş temizlenemedi. Lütfen tekrar dene.");
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    if (!inputPeriodLength.trim()) {
+      Alert.alert("Eksik bilgi", "Lütfen regl süresini gir.");
+      return;
+    }
+
+    const avgInput = inputAverageCycle.trim();
+    const len = parseInt(inputPeriodLength, 10);
+    const avg = avgInput
+      ? parseInt(avgInput, 10)
+      : settings?.averageCycleLength ?? DEFAULT_SETTINGS.averageCycleLength;
+
+    if (isNaN(avg) || avg <= 0 || isNaN(len) || len <= 0) {
+      Alert.alert(
+        "Geçersiz değer",
+        "Döngü süresi ve regl süresi pozitif sayı olmalı."
+      );
+      return;
+    }
+
+    const trimmedDate = inputLastStartDate.trim();
+    let isoFromInput: string | null = null;
+
+    if (trimmedDate !== "") {
+      isoFromInput = parseTRDateToISO(trimmedDate);
+      if (!isoFromInput) {
+        Alert.alert(
+          "Tarih formatı hatalı",
+          "Lütfen tarihi 24.11.2025 şeklinde (GG.AA.YYYY) gir ya da takvimden seç."
+        );
+        return;
+      }
+      if (isFutureISODate(isoFromInput)) {
+        Alert.alert(
+          "Geçersiz tarih",
+          "Son regl başlangıcı ileri bir tarih olamaz. Lütfen bugünü veya geçmiş bir günü gir."
+        );
+        return;
+      }
+    }
+
+    const newSettings: PeriodSettings = {
+      averageCycleLength: avg,
+      periodLength: len,
+    };
+
+    setSettings(newSettings);
+    await AsyncStorage.setItem(
+      PERIOD_SETTINGS_KEY,
+      JSON.stringify(newSettings)
+    );
+
+    let effectiveLogs = logs;
+
+    if (isoFromInput) {
+      effectiveLogs = replaceLatestPeriodLog(logs, isoFromInput);
+      setInputLastStartDate(formatLocalISODateTR(isoFromInput));
+      await persistLogsAndReschedule(effectiveLogs, newSettings);
+    } else if (logs.length > 0) {
+      await scheduleCycleNotifications(logs, newSettings, { silent: true });
+    }
+
+    setSettingsModalVisible(false);
+    Alert.alert("Kaydedildi", "Döngü ayarların güncellendi.");
+  };
+
+  const handleTodayStarted = async () => {
+    const todayIso = toLocalISODate(new Date());
+    const effSettings = await ensureSettingsStored();
+
+    const newLogs = upsertPeriodLog(logs, todayIso, effSettings.periodLength);
+    setInputLastStartDate(formatLocalISODateTR(todayIso));
+    await persistLogsAndReschedule(newLogs, effSettings);
+
+    Alert.alert(
+      "Kaydedildi",
+      "Bugünü regl başlangıcı olarak işaretledin. Tahminler ve bildirimler güncellendi."
+    );
+  };
+
+  const handleCalendarDayPress = async (day: DateObject) => {
+    try {
+      const pickedIso = day.dateString;
+
+      if (isFutureISODate(pickedIso)) {
+        Alert.alert(
+          "Geçersiz tarih",
+          "Son regl başlangıcı ileri bir tarih olamaz. Lütfen bugünü veya geçmiş bir günü seç."
+        );
+        return;
+      }
+
+      const effSettings = await ensureSettingsStored();
+      const newLogs = replaceLatestPeriodLog(logs, pickedIso);
+
+      setInputLastStartDate(formatLocalISODateTR(pickedIso));
+      await persistLogsAndReschedule(newLogs, effSettings);
+    } catch (e) {
+      console.log("handleCalendarDayPress save error:", e);
+      Alert.alert("Hata", "Tarih kaydedilemedi. Lütfen tekrar dene.");
+    }
+  };
+
   const handleSelectMood = async (level: MoodLevel) => {
-    setMoodData((prev) => {
+    setMoodData((prev: MoodData) => {
       const next: MoodData = { ...prev };
       const day: MoodDay = next[todayKey] ?? {};
       day.mood = level;
@@ -671,7 +1078,7 @@ export default function PeriodScreen() {
   };
 
   const handleToggleSymptom = async (symptom: string) => {
-    setMoodData((prev) => {
+    setMoodData((prev: MoodData) => {
       const next: MoodData = { ...prev };
       const day: MoodDay = next[todayKey] ?? {};
       const currentList = day.symptoms ?? [];
@@ -697,105 +1104,39 @@ export default function PeriodScreen() {
     );
   }
 
-  const lastStartIso = logs.length > 0 ? logs[logs.length - 1].startDate : null;
-
-  const lastStartTR = lastStartIso ? formatDateTRFromISO(lastStartIso) : null;
-  const nextPeriodTR = nextPeriod ? formatDateTRFromISO(nextPeriod) : null;
-  const ovulationDateTR = ovulationInfo.ovulationDate
-    ? formatDateTRFromISO(ovulationInfo.ovulationDate)
-    : null;
-
-  const fertileRangeTR =
-    ovulationInfo.windowStart && ovulationInfo.windowEnd
-      ? formatRangeTR(ovulationInfo.windowStart, ovulationInfo.windowEnd)
-      : null;
-
   return (
     <>
       <Stack.Screen options={{ title: "Regl Takvimi" }} />
 
       <View style={styles.page}>
-        {/* 🧪 DEBUG MODAL */}
         <Modal
           visible={debugVisible}
           animationType="slide"
-          transparent={true}
+          transparent
           onRequestClose={() => setDebugVisible(false)}
         >
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(0,0,0,0.45)",
-              padding: 16,
-              justifyContent: "center",
-            }}
-          >
-            <View
-              style={{
-                backgroundColor: "#fff",
-                borderRadius: 12,
-                padding: 12,
-                maxHeight: "85%",
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 16,
-                  fontWeight: "800",
-                  color: "#4A2E2A",
-                  marginBottom: 8,
-                }}
-              >
-                🧪 Period Debug Panel
-              </Text>
+          <View style={styles.debugOverlay}>
+            <View style={styles.debugCard}>
+              <Text style={styles.debugTitle}>🧪 Period Debug Panel</Text>
 
-              <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
+              <View style={styles.debugActions}>
                 <Pressable
-                  style={{
-                    flex: 1,
-                    paddingVertical: 10,
-                    borderRadius: 10,
-                    backgroundColor: "#B0756F",
-                    alignItems: "center",
-                  }}
+                  style={styles.debugButtonPrimary}
                   onPress={() => buildDebugDump()}
                 >
-                  <Text style={{ color: "#fff", fontWeight: "800" }}>
-                    Yenile
-                  </Text>
+                  <Text style={styles.debugButtonText}>Yenile</Text>
                 </Pressable>
 
                 <Pressable
-                  style={{
-                    flex: 1,
-                    paddingVertical: 10,
-                    borderRadius: 10,
-                    backgroundColor: "#444",
-                    alignItems: "center",
-                  }}
+                  style={styles.debugButtonSecondary}
                   onPress={() => setDebugVisible(false)}
                 >
-                  <Text style={{ color: "#fff", fontWeight: "800" }}>
-                    Kapat
-                  </Text>
+                  <Text style={styles.debugButtonText}>Kapat</Text>
                 </Pressable>
               </View>
 
-              <ScrollView
-                style={{
-                  borderWidth: 1,
-                  borderColor: "#F3B6B3",
-                  borderRadius: 10,
-                  padding: 10,
-                }}
-              >
-                <Text
-                  style={{
-                    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-                    fontSize: 12,
-                    color: "#2b1a17",
-                  }}
-                >
+              <ScrollView style={styles.debugScroll}>
+                <Text style={styles.debugText}>
                   {debugDump || "Debug verisi yok."}
                 </Text>
               </ScrollView>
@@ -803,157 +1144,286 @@ export default function PeriodScreen() {
           </View>
         </Modal>
 
-        <ScrollView contentContainerStyle={styles.content}>
+        <Modal
+          visible={settingsModalVisible}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setSettingsModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeaderRow}>
+                <Text style={styles.modalTitle}>Döngü ayarların</Text>
+
+                <Pressable onPress={() => setSettingsModalVisible(false)}>
+                  <Text style={styles.modalClose}>Kapat</Text>
+                </Pressable>
+              </View>
+
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.modalContent}
+              >
+                <Text style={styles.modalDescription}>
+                  Başlangıç değeri olarak 28 gün kullanılır. Uygulama,
+                  kaydettiğin regl başlangıçlarına göre zamanla döngünü öğrenir.
+                </Text>
+
+                <Text style={styles.inputLabel}>Son regl başlangıcın</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Örn: 24.11.2025"
+                  value={inputLastStartDate}
+                  onChangeText={setInputLastStartDate}
+                />
+
+                <Text style={styles.inputLabel}>
+                  Başlangıç döngü süren (bilmiyorsan 28 kalsın)
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Örn: 28"
+                  keyboardType="number-pad"
+                  value={inputAverageCycle}
+                  onChangeText={setInputAverageCycle}
+                />
+
+                <Text style={styles.inputLabel}>
+                  Reglin ortalama kaç gün sürüyor?
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Örn: 5"
+                  keyboardType="number-pad"
+                  value={inputPeriodLength}
+                  onChangeText={setInputPeriodLength}
+                />
+
+                <Pressable
+                  style={styles.modalPrimaryButton}
+                  onPress={handleSaveSettings}
+                >
+                  <Text style={styles.modalPrimaryButtonText}>
+                    Ayarları kaydet
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.modalDangerButton}
+                  onPress={() =>
+                    Alert.alert(
+                      "Regl geçmişini sıfırla",
+                      "Yanlış eklenen tüm regl kayıtları silinecek. Ayarların korunur.",
+                      [
+                        { text: "Vazgeç", style: "cancel" },
+                        {
+                          text: "Sıfırla",
+                          style: "destructive",
+                          onPress: () => {
+                            void resetPeriodHistory();
+                          },
+                        },
+                      ]
+                    )
+                  }
+                >
+                  <Text style={styles.modalDangerButtonText}>
+                    Regl geçmişini sıfırla
+                  </Text>
+                </Pressable>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
           <Pressable onPress={handleTitleSecretTap}>
             <Text style={styles.pageTitle}>Regl Takvimi</Text>
           </Pressable>
 
           <Text style={styles.pageSubtitle}>
-            Regl başlangıçlarını, modunu ve semptomlarını takip ederek bedeninle
-            daha uyumlu bir ritim yakalayabilirsin.
+            Döngünü takip et, bedenini daha iyi anlamak ve kendinle daha uyumlu
+            bir ritim yakalamak için buradasın.
           </Text>
 
-          <Pressable
-            style={styles.secondaryButton}
-            onPress={() =>
-              scheduleCycleNotifications(logs, settings, { silent: false })
-            }
-          >
-            <Text style={styles.secondaryButtonText}>
-              Döngün İçin Bildirimleri Aç
+          <View style={styles.heroCard}>
+            <View style={styles.heroTopRow}>
+              <View style={styles.heroVisualWrap}>
+                <View style={styles.heroVisualOuter}>
+                  <View style={styles.heroVisualMiddle}>
+                    <View style={styles.heroVisualInner}>
+                      <Text style={styles.heroVisualHeart}>♥</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.heroDotsRow}>
+                  <View style={styles.heroDot} />
+                  <View style={styles.heroDot} />
+                  <View style={styles.heroDot} />
+                  <View style={styles.heroDot} />
+                </View>
+              </View>
+
+              <View style={styles.heroTextWrap}>
+                <Text style={styles.heroEyebrow}>{heroEyebrow}</Text>
+
+                <Text style={styles.heroMain}>{heroMainText}</Text>
+
+                <View style={styles.heroChips}>
+                  <View style={styles.heroChip}>
+                    <Text style={styles.heroChipText}>{phaseInfo.title}</Text>
+                  </View>
+
+                  {cycleDay ? (
+                    <View style={styles.heroChip}>
+                      <Text style={styles.heroChipText}>
+                        Döngünün {cycleDay}. günü
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+
+            <Pressable style={styles.primaryButton} onPress={handleTodayStarted}>
+              <Text style={styles.primaryButtonText}>Bugün regl oldum</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.linkButton}
+              onPress={() => setSettingsModalVisible(true)}
+            >
+              <Text style={styles.linkButtonText}>Başka bir tarih seç</Text>
+              <Text style={styles.linkButtonArrow}>›</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.notificationButton}
+              onPress={() =>
+                scheduleCycleNotifications(normalizedLogs, settings, {
+                  silent: false,
+                })
+              }
+            >
+              <Text style={styles.notificationButtonText}>
+                Regl hatırlatıcılarını aç
+              </Text>
+            </Pressable>
+
+            <Text style={styles.helperText}>
+              Tahmini regl gününden 2 gün önce, beklenen gün ve gecikme
+              durumunda bildirim alabilirsin.
             </Text>
-          </Pressable>
+          </View>
 
-          <Text style={styles.helperText}>
-            Bildirim iznin açıksa tahmini reglden 2 gün önce ve tahmini regl
-            gününde hatırlatıcı alırsın.
-          </Text>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Döngü Özeti</Text>
-
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Son regl başlangıcın:</Text>
-              <Text style={styles.summaryValue}>
-                {lastStartTR ? lastStartTR : "Henüz kayıt yok"}
+          {lateState.isLate ? (
+            <View style={styles.lateCard}>
+              <Text style={styles.lateTitle}>Reglin gecikmiş olabilir</Text>
+              <Text style={styles.lateText}>
+                Reglin başladığında kaydetmen tahminlerin daha doğru çalışmasına
+                yardımcı olur.
               </Text>
+
+              {lateState.shouldShowPregnancyNote ? (
+                <Text style={styles.lateFootnote}>
+                  Hâlâ başlamadıysa ve gebelik ihtimali varsa test yapmayı
+                  düşünebilirsin.
+                </Text>
+              ) : null}
             </View>
+          ) : null}
 
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Ortalama döngü süren:</Text>
-              <Text style={styles.summaryValue}>
-                {settings?.averageCycleLength ?? "-"} gün
-              </Text>
-            </View>
+          <Text style={styles.sectionTitle}>Döngü Özeti</Text>
 
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Regl süren:</Text>
-              <Text style={styles.summaryValue}>
-                {settings?.periodLength ?? "-"} gün
-              </Text>
-            </View>
+          <View style={styles.metricsGrid}>
+            <MetricCard label="Son regl" value={lastStartTR ?? "Kayıt yok"} />
+            <MetricCard
+              label="Sonraki regl"
+              value={nextPeriodTR ?? "Hesaplanamıyor"}
+            />
+            <MetricCard label="Döngü" value={`${learnedCycleLength} gün`} />
+            <MetricCard
+              label="Regl süresi"
+              value={`${
+                effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength
+              } gün`}
+            />
+          </View>
 
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>
-                Tahmini bir sonraki regl başlangıcı:
-              </Text>
-              <Text style={styles.summaryValue}>
-                {nextPeriodTR ? nextPeriodTR : "Henüz hesaplanamıyor"}
-              </Text>
-            </View>
-
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Tahmini ovülasyon günün:</Text>
-              <Text style={styles.summaryValue}>
+          <View style={styles.infoListCard}>
+            <View style={styles.infoListRow}>
+              <Text style={styles.infoListLabel}>Ovülasyon</Text>
+              <Text style={styles.infoListValue}>
                 {ovulationDateTR ?? "Henüz hesaplanamıyor"}
               </Text>
             </View>
 
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Verimli günlerin:</Text>
-              <Text style={styles.summaryValue}>
-                {fertileRangeTR ? fertileRangeTR : "Henüz hesaplanamıyor"}
+            <View style={styles.infoDivider} />
+
+            <View style={styles.infoListRow}>
+              <Text style={styles.infoListLabel}>Verimli günler</Text>
+              <Text style={styles.infoListValue}>
+                {fertileRangeTR ?? "Henüz hesaplanamıyor"}
               </Text>
             </View>
-
-            <Text style={styles.summaryNote}>
-              Tahmini tarih ve verimli günler, son regl başlangıcın ve ortalama
-              döngü süren üzerinden hesaplanır. Döngünü güncelledikçe bu alanlar
-              da senin ritmine daha çok uyum sağlar.
-            </Text>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Takvim Görünümü</Text>
-            <Text style={styles.cardDescription}>
-              Son regl başlangıcını takvimden de seçebilirsin. Geçmiş regl
-              günlerin, tahmini regl dönemlerin ve verimli günlerin renklerle
-              işaretlenir.
-            </Text>
+            <View style={styles.cardHeaderRow}>
+              <View style={styles.cardHeaderTextWrap}>
+                <Text style={styles.cardTitle}>Takvim Görünümü</Text>
+                <Text style={styles.cardDescription}>
+                  Geçmiş regl günlerin, tahmini regl dönemlerin ve verimli
+                  günlerin burada işaretlenir.
+                </Text>
+              </View>
+
+              <View style={styles.sectionIconBadge}>
+                <Text style={styles.sectionIconText}>🗓️</Text>
+              </View>
+            </View>
 
             <Calendar
               onDayPress={handleCalendarDayPress}
               markedDates={markedDates}
               maxDate={todayKey}
+              firstDay={1}
               theme={{
-                todayTextColor: "#B0756F",
-                arrowColor: "#B0756F",
+                todayTextColor: COLORS.primaryDark,
+                arrowColor: COLORS.primaryDark,
+                monthTextColor: COLORS.text,
+                textDayFontSize: 16,
+                textMonthFontSize: 18,
+                textDayHeaderFontSize: 13,
+                textDayFontWeight: "500",
+                textMonthFontWeight: "700",
               }}
             />
+
+            <View style={styles.legendWrap}>
+              <LegendItem type="period" label="Regl günleri" />
+              <LegendItem type="fertile" label="Verimli günler" />
+              <LegendItem type="ovulation" label="Ovülasyon" />
+              <LegendItem type="today" label="Bugün" />
+            </View>
           </View>
 
-          <Pressable style={styles.primaryButton} onPress={handleTodayStarted}>
-            <Text style={styles.primaryButtonText}>Bugün Regl Başladı</Text>
-          </Pressable>
+          <View style={styles.phaseCard}>
+            <View style={styles.phaseTextWrap}>
+              <Text style={styles.cardTitle}>Bugün Döngünün Fazı</Text>
+              <Text style={styles.phaseTitle}>{phaseInfo.title}</Text>
+              <Text style={styles.phaseText}>{phaseInfo.description}</Text>
+              <Text style={styles.phaseSuggestion}>{phaseInfo.suggestion}</Text>
+            </View>
 
-          <Text style={styles.helperText}>
-            Reglinin ilk gününde bu butona dokunarak döngünü güncellersin.
-          </Text>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Bugün Döngünün Fazı</Text>
-            <Text style={styles.phaseTitle}>{phaseInfo.title}</Text>
-            <Text style={styles.phaseText}>{phaseInfo.description}</Text>
-            <Text style={styles.phaseSuggestion}>{phaseInfo.suggestion}</Text>
+            <View style={styles.phaseDecorationWrap}>
+              <Text style={styles.phaseDecoration}>🌸</Text>
+            </View>
           </View>
-
-          <View style={styles.card}>
-  <Text style={styles.cardTitle}>Bilgilendirme & Kaynaklar</Text>
-
-  <Text style={styles.summaryNote}>
-    Bu sayfadaki döngü fazı, ovülasyon ve verimli günler hesaplamaları genel
-    bilgilendirme amaçlıdır ve yalnızca tahmini sonuçlar üretir. Tıbbi
-    teşhis/takip yerine geçmez. Doğum kontrol yöntemi olarak kullanılmamalıdır.
-    Düzensizlik, şiddetli ağrı veya endişe durumunda bir uzmana danışmanı
-    öneririz.
-  </Text>
-
-  <Text style={[styles.inputLabel, { marginTop: 10 }]}>Kaynaklar</Text>
-
-  <Pressable
-    onPress={() =>
-      openUrl(
-        "https://my.clevelandclinic.org/health/articles/10132-menstrual-cycle"
-      )
-    }
-  >
-    <Text style={styles.sourceLink}>• Cleveland Clinic – Menstrual Cycle</Text>
-  </Pressable>
-
-  <Pressable
-    onPress={() =>
-      openUrl(
-        "https://www.mayoclinic.org/healthy-lifestyle/womens-health/in-depth/menstrual-cycle/art-20047186"
-      )
-    }
-  >
-    <Text style={styles.sourceLink}>• Mayo Clinic – Menstrual cycle basics</Text>
-  </Pressable>
-
-  <Pressable onPress={() => openUrl("https://www.nhs.uk/conditions/periods/")}>
-    <Text style={styles.sourceLink}>• NHS – Periods</Text>
-  </Pressable>
-</View>
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Bugünkü Modun & Semptomların</Text>
@@ -968,14 +1438,6 @@ export default function PeriodScreen() {
                     style={[
                       styles.moodChip,
                       selected && styles.moodChipSelected,
-                      opt.key === "low" &&
-                        selected && { backgroundColor: "#FAD4D4" },
-                      opt.key === "neutral" &&
-                        selected && { backgroundColor: "#FFE8C2" },
-                      opt.key === "good" &&
-                        selected && { backgroundColor: "#D4F5D6" },
-                      opt.key === "great" &&
-                        selected && { backgroundColor: "#E9D8FF" },
                     ]}
                     onPress={() => handleSelectMood(opt.key)}
                   >
@@ -992,7 +1454,7 @@ export default function PeriodScreen() {
               })}
             </View>
 
-            <Text style={[styles.inputLabel, { marginTop: 10 }]}>
+            <Text style={[styles.inputLabel, { marginTop: 14 }]}>
               Bugün bedeninde neler var?
             </Text>
 
@@ -1023,42 +1485,73 @@ export default function PeriodScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Döngü Ayarların</Text>
+            <View style={styles.settingsTopRow}>
+              <View style={styles.settingsIconWrap}>
+                <Text style={styles.settingsIcon}>🩷</Text>
+              </View>
 
-            <Text style={styles.inputLabel}>Son regl başlangıcın</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Örn: 24.11.2025"
-              value={inputLastStartDate}
-              onChangeText={setInputLastStartDate}
-            />
-
-            <Text style={styles.inputLabel}>Ortalama döngü süren (gün)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Örn: 28"
-              keyboardType="number-pad"
-              value={inputAverageCycle}
-              onChangeText={setInputAverageCycle}
-            />
-
-            <Text style={styles.inputLabel}>
-              Reglin ortalama kaç gün sürüyor?
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Örn: 5"
-              keyboardType="number-pad"
-              value={inputPeriodLength}
-              onChangeText={setInputPeriodLength}
-            />
+              <View style={styles.settingsTextWrap}>
+                <Text style={styles.cardTitle}>Döngü ayarların</Text>
+                <Text style={styles.settingsMeta}>{settingsSummaryLine}</Text>
+                <Text style={styles.settingsMeta}>{settingsLastPeriodLine}</Text>
+              </View>
+            </View>
 
             <Pressable
-              style={styles.secondaryButton}
-              onPress={handleSaveSettings}
+              style={styles.settingsActionRow}
+              onPress={() => setSettingsModalVisible(true)}
             >
-              <Text style={styles.secondaryButtonText}>Ayarları Kaydet</Text>
+              <Text style={styles.settingsActionText}>Düzenle</Text>
+              <Text style={styles.settingsActionArrow}>›</Text>
             </Pressable>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.infoHeaderRow}>
+              <View style={styles.infoIconWrap}>
+                <Text style={styles.infoIcon}>✚</Text>
+              </View>
+
+              <View style={styles.infoHeaderTextWrap}>
+                <Text style={styles.cardTitle}>Tıbbi bilgilendirme</Text>
+                <Text style={styles.summaryNote}>
+                  Tahminler genel bilgilendirme amaçlıdır ve yalnızca tahmini
+                  sonuçlar üretir. Tıbbi teşhis yerine geçmez ve doğum kontrol
+                  yöntemi olarak kullanılmamalıdır.
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.sourcesRow}>
+              <Pressable
+                style={styles.sourcePill}
+                onPress={() =>
+                  openUrl(
+                    "https://my.clevelandclinic.org/health/articles/10132-menstrual-cycle"
+                  )
+                }
+              >
+                <Text style={styles.sourcePillText}>Cleveland Clinic</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.sourcePill}
+                onPress={() =>
+                  openUrl(
+                    "https://www.mayoclinic.org/healthy-lifestyle/womens-health/in-depth/menstrual-cycle/art-20047186"
+                  )
+                }
+              >
+                <Text style={styles.sourcePillText}>Mayo Clinic</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.sourcePill}
+                onPress={() => openUrl("https://www.nhs.uk/conditions/periods/")}
+              >
+                <Text style={styles.sourcePillText}>NHS</Text>
+              </Pressable>
+            </View>
           </View>
         </ScrollView>
 
@@ -1069,132 +1562,722 @@ export default function PeriodScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#FFF7F3" },
-  content: { padding: 16, paddingBottom: 32 },
-  loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
-  loadingText: { color: "#4A2E2A", fontSize: 16 },
-
-  pageTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#4A2E2A",
-    marginBottom: 8,
-  },
-  pageSubtitle: { fontSize: 13, color: "#5A3A35", marginBottom: 16 },
-
-  card: {
-    padding: 14,
-    borderRadius: 12,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#F3B6B3",
-    marginBottom: 14,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#4A2E2A",
-    marginBottom: 8,
-  },
-  cardDescription: { fontSize: 13, color: "#5A3A35", marginBottom: 10 },
-
-  summaryRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 4,
-  },
-  summaryLabel: { fontSize: 13, color: "#5A3A35", flex: 1.2, paddingRight: 8 },
-  summaryValue: {
-    fontSize: 13,
-    color: "#4A2E2A",
-    fontWeight: "600",
+  page: {
     flex: 1,
-    textAlign: "right",
+    backgroundColor: COLORS.bg,
   },
-  summaryNote: { marginTop: 8, fontSize: 12, color: "#887473" },
 
-  primaryButton: {
-    marginTop: 4,
-    paddingVertical: 12,
-    borderRadius: 999,
-    backgroundColor: "#B0756F",
+  content: {
+    padding: 16,
+    paddingBottom: 32,
+  },
+
+  loadingContainer: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+
+  loadingText: {
+    color: COLORS.text,
+    fontSize: 16,
+  },
+
+  pageTitle: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginBottom: 8,
+  },
+
+  pageSubtitle: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: COLORS.textSoft,
+    marginBottom: 16,
+  },
+
+  heroCard: {
+    padding: 18,
+    borderRadius: 24,
+    backgroundColor: "#FFF4EF",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 18,
+  },
+
+  heroTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+
+  heroVisualWrap: {
+    width: 120,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  heroVisualOuter: {
+    width: 96,
+    height: 96,
+    borderRadius: 999,
+    borderWidth: 8,
+    borderColor: "#F6CFCF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  heroVisualMiddle: {
+    width: 68,
+    height: 68,
+    borderRadius: 999,
+    borderWidth: 6,
+    borderColor: "#E58A8A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  heroVisualInner: {
+    width: 42,
+    height: 42,
+    borderRadius: 999,
+    backgroundColor: "#FFF9F8",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  heroVisualHeart: {
+    fontSize: 18,
+    color: COLORS.primaryDark,
+    fontWeight: "800",
+  },
+
+  heroDotsRow: {
+    flexDirection: "row",
+    marginTop: 10,
+  },
+
+  heroDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#E8B8B8",
+    marginHorizontal: 3,
+  },
+
+  heroTextWrap: {
+    flex: 1,
+  },
+
+  heroEyebrow: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.textSoft,
+    letterSpacing: 0.4,
+    marginBottom: 8,
+  },
+
+  heroMain: {
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginBottom: 12,
+  },
+
+  heroChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+
+  heroChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: "#FFF9F7",
+    borderWidth: 1,
+    borderColor: "#EFDCD7",
+    marginRight: 8,
+    marginBottom: 8,
+  },
+
+  heroChipText: {
+    fontSize: 13,
+    color: COLORS.textSoft,
+    fontWeight: "600",
+  },
+
+  primaryButton: {
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  primaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+
+  linkButton: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  linkButtonText: {
+    color: COLORS.primaryDark,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+
+  linkButtonArrow: {
+    color: COLORS.primaryDark,
+    fontSize: 22,
+    marginLeft: 6,
+    lineHeight: 22,
+  },
+
+  notificationButton: {
+    marginTop: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "#F7E3DE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  notificationButtonText: {
+    color: COLORS.primaryDark,
+    fontSize: 15,
+    fontWeight: "700",
+  },
 
   helperText: {
     fontSize: 12,
-    color: "#887473",
-    marginTop: 4,
+    lineHeight: 18,
+    color: COLORS.textMuted,
+    marginTop: 8,
+    textAlign: "center",
+  },
+
+  lateCard: {
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: COLORS.lateBg,
+    borderWidth: 1,
+    borderColor: "#F2D8D4",
+    marginBottom: 16,
+  },
+
+  lateTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+
+  lateText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: COLORS.textSoft,
+  },
+
+  lateFootnote: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: COLORS.textMuted,
+    marginTop: 6,
+  },
+
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginBottom: 12,
+  },
+
+  metricsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+
+  metricCard: {
+    width: "48%",
+    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 10,
+  },
+
+  metricLabel: {
+    fontSize: 13,
+    color: COLORS.textMuted,
     marginBottom: 8,
   },
 
-  inputLabel: {
-    fontSize: 13,
-    color: "#5A3A35",
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#F3B6B3",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 13,
-    color: "#4A2E2A",
+  metricValue: {
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: "800",
+    color: COLORS.text,
   },
 
-  secondaryButton: {
-    marginTop: 6,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: "#b86e65ff",
+  infoListCard: {
+    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 20,
+    marginBottom: 14,
+  },
+
+  infoListRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  infoListLabel: {
+    fontSize: 16,
+    color: COLORS.text,
+    fontWeight: "600",
+    flex: 1,
+  },
+
+  infoListValue: {
+    fontSize: 16,
+    lineHeight: 22,
+    color: COLORS.text,
+    fontWeight: "700",
+    textAlign: "right",
+    flex: 1,
+  },
+
+  infoDivider: {
+    height: 1,
+    backgroundColor: COLORS.border,
+  },
+
+  card: {
+    padding: 16,
+    borderRadius: 22,
+    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 14,
+  },
+
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 4,
+  },
+
+  cardHeaderTextWrap: {
+    flex: 1,
+  },
+
+  cardTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginBottom: 8,
+  },
+
+  cardDescription: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: COLORS.textSoft,
+    marginBottom: 12,
+  },
+
+  sectionIconBadge: {
+    marginLeft: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#FFF0EB",
     alignItems: "center",
     justifyContent: "center",
   },
-  secondaryButtonText: { color: "#f0ededff", fontSize: 15, fontWeight: "600" },
 
-  moodRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
+  sectionIconText: {
+    fontSize: 22,
+  },
+
+  legendWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 14,
+  },
+
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 14,
+    marginBottom: 8,
+  },
+
+  legendDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 999,
+    marginRight: 6,
+  },
+
+  legendPeriod: {
+    backgroundColor: COLORS.period,
+  },
+
+  legendFertile: {
+    backgroundColor: COLORS.fertile,
+  },
+
+  legendOvulationWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  legendOvulationDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: COLORS.ovulation,
+  },
+
+  legendToday: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: COLORS.today,
+  },
+
+  legendLabel: {
+    fontSize: 12,
+    color: COLORS.textSoft,
+  },
+
+  phaseCard: {
+    padding: 16,
+    borderRadius: 22,
+    backgroundColor: "#FFF7F5",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  phaseTextWrap: {
+    flex: 1,
+  },
+
+  phaseTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: COLORS.primaryDark,
+    marginBottom: 6,
+  },
+
+  phaseText: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: COLORS.textSoft,
+    marginBottom: 6,
+  },
+
+  phaseSuggestion: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: COLORS.textMuted,
+  },
+
+  phaseDecorationWrap: {
+    marginLeft: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  phaseDecoration: {
+    fontSize: 34,
+  },
+
+  inputLabel: {
+    fontSize: 14,
+    color: COLORS.textSoft,
+    marginTop: 8,
+    marginBottom: 6,
+    fontWeight: "600",
+  },
+
+  input: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: COLORS.text,
+    backgroundColor: "#FFFDFC",
+  },
+
+  moodRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+
   moodChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#F3B6B3",
-    backgroundColor: "#FFF7F3",
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.chip,
+    marginRight: 8,
+    marginBottom: 8,
   },
-  moodChipSelected: { borderColor: "#B0756F" },
-  moodChipText: { fontSize: 12, color: "#5A3A35" },
-  moodChipTextSelected: { fontWeight: "700", color: "#4A2E2A" },
+
+  moodChipSelected: {
+    borderColor: "#E2A4A1",
+    backgroundColor: "#FFF0EC",
+  },
+
+  moodChipText: {
+    fontSize: 13,
+    color: COLORS.textSoft,
+  },
+
+  moodChipTextSelected: {
+    fontWeight: "700",
+    color: COLORS.text,
+  },
 
   symptomContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginTop: 6,
   },
+
   symptomChip: {
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#F3B6B3",
-    backgroundColor: "#FFFFFF",
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.card,
+    marginRight: 8,
+    marginBottom: 8,
   },
-  symptomChipSelected: { backgroundColor: "#FCE8E4", borderColor: "#B0756F" },
-  symptomChipText: { fontSize: 12, color: "#5A3A35" },
-  symptomChipTextSelected: { fontWeight: "600", color: "#4A2E2A" },
 
-  phaseTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#B0756F",
-    marginBottom: 4,
+  symptomChipSelected: {
+    backgroundColor: "#FFF0EC",
+    borderColor: "#E2A4A1",
   },
-  phaseText: { fontSize: 13, color: "#5A3A35", marginBottom: 6 },
-  phaseSuggestion: { fontSize: 12, color: "#887473" },
+
+  symptomChipText: {
+    fontSize: 13,
+    color: COLORS.textSoft,
+  },
+
+  symptomChipTextSelected: {
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+
+  settingsTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 14,
+  },
+
+  settingsIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#FFF0EB",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  settingsIcon: {
+    fontSize: 20,
+  },
+
+  settingsTextWrap: {
+    flex: 1,
+  },
+
+  settingsMeta: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: COLORS.textSoft,
+    marginBottom: 2,
+  },
+
+  settingsActionRow: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#FFFDFC",
+  },
+
+  settingsActionText: {
+    fontSize: 16,
+    color: COLORS.text,
+    fontWeight: "600",
+  },
+
+  settingsActionArrow: {
+    fontSize: 24,
+    color: COLORS.primaryDark,
+    lineHeight: 24,
+  },
+
+  infoHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+
+  infoIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#FFF0EB",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  infoIcon: {
+    fontSize: 18,
+    color: COLORS.primaryDark,
+    fontWeight: "800",
+  },
+
+  infoHeaderTextWrap: {
+    flex: 1,
+  },
+
+  summaryNote: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 20,
+    color: COLORS.textMuted,
+  },
+
+  sourcesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 12,
+  },
+
+  sourcePill: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: "#FFF7F4",
+    marginRight: 8,
+    marginBottom: 8,
+  },
+
+  sourcePillText: {
+    color: COLORS.primaryDark,
+    fontWeight: "700",
+    fontSize: 13,
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.25)",
+    justifyContent: "flex-end",
+  },
+
+  modalCard: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 18,
+    paddingHorizontal: 18,
+    paddingBottom: 28,
+    maxHeight: "85%",
+  },
+
+  modalHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: COLORS.text,
+  },
+
+  modalClose: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: COLORS.primaryDark,
+  },
+
+  modalContent: {
+    paddingBottom: 16,
+  },
+
+  modalDescription: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: COLORS.textSoft,
+    marginBottom: 8,
+  },
+
+  modalPrimaryButton: {
+    marginTop: 16,
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  modalPrimaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+
+  modalDangerButton: {
+    marginTop: 10,
+    paddingVertical: 13,
+    borderRadius: 16,
+    backgroundColor: "#FFF1F0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  modalDangerButtonText: {
+    color: "#C15757",
+    fontSize: 15,
+    fontWeight: "700",
+  },
 
   adContainer: {
     paddingHorizontal: 8,
@@ -1202,9 +2285,64 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-    sourceLink: {
-    color: "#B0756F",
-    fontWeight: "700",
-    marginBottom: 6,
+  debugOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    padding: 16,
+    justifyContent: "center",
+  },
+
+  debugCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 12,
+    maxHeight: "85%",
+  },
+
+  debugTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginBottom: 8,
+  },
+
+  debugActions: {
+    flexDirection: "row",
+    marginBottom: 10,
+  },
+
+  debugButtonPrimary: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: COLORS.primaryDark,
+    alignItems: "center",
+    marginRight: 8,
+  },
+
+  debugButtonSecondary: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#444",
+    alignItems: "center",
+  },
+
+  debugButtonText: {
+    color: "#fff",
+    fontWeight: "800",
+  },
+
+  debugScroll: {
+    borderWidth: 1,
+    borderColor: "#F3B6B3",
+    borderRadius: 10,
+    padding: 10,
+  },
+
+  debugText: {
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    fontSize: 12,
+    color: "#2b1a17",
   },
 });

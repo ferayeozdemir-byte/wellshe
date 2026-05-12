@@ -211,7 +211,7 @@ export function getCyclePhaseInfo(
       key: "unknown",
       title: "Faz dışı aralık",
       description:
-        "Son regl başlangıç tarihin ile bugünün arasındaki fark beklenen döngü süresinin dışında görünüyor.",
+        "Son regl başlangıç tarihinle bugün arasındaki fark, beklenen döngü süresinin dışında görünüyor.",
       suggestion:
         "Son regl başlangıcını güncellersen bu alan güncel döngüne göre yeni fazı gösterecek.",
     };
@@ -224,7 +224,7 @@ export function getCyclePhaseInfo(
       description:
         "Bedenin yenilenme ve arınma sürecinde. Enerjinin dalgalanması son derece normal.",
       suggestion:
-        "Bugün kendine biraz daha nazik davranmak, tempoyu düşürmek ve dinlenmeye alan açmak iyi gelebilir.",
+        "Bugün kendine biraz daha nazik davranman, tempoyu düşürmen ve dinlenmeye alan açman iyi gelebilir.",
     };
   }
 
@@ -258,7 +258,7 @@ export function getCyclePhaseInfo(
       description:
         "Bedenin yavaş yavaş içe dönmeye hazırlanıyor. Duygular hassaslaşabilir, enerji iniş çıkışları yaşayabilirsin.",
       suggestion:
-        "Bu dönemde yapılacaklar listeni sadeleştirmek, sana iyi gelen rutinlere ağırlık vermek ve kendine karşı anlayışlı olmak çok değerli.",
+        "Bu dönemde yapılacaklar listeni sadeleştirmen, sana iyi gelen rutinlere ağırlık vermen ve kendine karşı anlayışlı olman çok değerli.",
     };
   }
 
@@ -266,8 +266,8 @@ export function getCyclePhaseInfo(
     key: "unknown",
     title: "Geçiş dönemi",
     description:
-      "Bugün için net bir faz tanımı yapamıyoruz, ama bu da döngünün doğal dalgalanmalarının bir parçası.",
+      "Bugün için net bir faz tanımı yapamıyoruz ama bu da döngünün doğal dalgalanmalarının bir parçası.",
     suggestion:
-      "Bedeninin bugün nasıl hissettiğini gözlemlemek ve buna göre küçük ayarlamalar yapmak en sağlıklı rehber olacaktır.",
+      "Bedeninin bugün nasıl hissettiğini gözlemlemen ve buna göre küçük ayarlamalar yapman en sağlıklı rehber olacaktır.",
   };
 }

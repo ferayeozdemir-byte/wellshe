@@ -104,40 +104,64 @@ export default function CalorieScreen() {
   const [calcHydrated, setCalcHydrated] = useState(false);
 
   const computed = useMemo(() => {
-    const a = Number(age);
-    const h = Number(heightCm);
-    const w = Number(weightKg);
+  const a = Number(age);
+  const h = Number(heightCm);
+  const w = Number(weightKg);
 
-    const valid =
-      Number.isFinite(a) &&
-      Number.isFinite(h) &&
-      Number.isFinite(w) &&
-      a > 0 &&
-      a < 120 &&
-      h > 80 &&
-      h < 230 &&
-      w > 20 &&
-      w < 400;
+  const valid =
+    Number.isFinite(a) &&
+    Number.isFinite(h) &&
+    Number.isFinite(w) &&
+    a > 0 &&
+    a < 120 &&
+    h > 80 &&
+    h < 230 &&
+    w > 20 &&
+    w < 400;
 
-    if (!valid) return null;
+  if (!valid) return null;
 
-    const base = 10 * w + 6.25 * h - 5 * a;
-    const bmr = sex === "male" ? base + 5 : base - 161;
-    const tdee = bmr * activityFactor[activity];
+  const base = 10 * w + 6.25 * h - 5 * a;
+  const bmr = sex === "male" ? base + 5 : base - 161;
+  const tdee = bmr * activityFactor[activity];
 
-    let recommended = tdee;
-    if (goal === "lose") recommended = tdee - 400;
-    if (goal === "gain") recommended = tdee + 300;
+  let recommended = tdee;
+  if (goal === "lose") recommended = tdee - 400;
+  if (goal === "gain") recommended = tdee + 300;
 
-    const minSafe = sex === "male" ? 1500 : 1200;
-    if (goal !== "maintain" && recommended < minSafe) recommended = minSafe;
+  const minSafe = sex === "male" ? 1500 : 1200;
+  if (goal !== "maintain" && recommended < minSafe) recommended = minSafe;
 
-    return {
-      bmr: Math.round(bmr),
-      tdee: Math.round(tdee),
-      recommended: Math.round(recommended),
-    };
-  }, [age, heightCm, weightKg, sex, activity, goal]);
+  const heightM = h / 100;
+  const bmi = w / (heightM * heightM);
+
+  const healthyWeightMin = 18.5 * heightM * heightM;
+  const healthyWeightMax = 24.9 * heightM * heightM;
+
+  let bmiCategory = "Belirsiz";
+  if (bmi < 18.5) bmiCategory = "Düşük";
+  else if (bmi < 25) bmiCategory = "Sağlıklı aralık";
+  else if (bmi < 30) bmiCategory = "Yüksek";
+  else bmiCategory = "Obezite aralığı";
+
+  let weightNote = "Kilon boyuna göre sağlıklı aralıkta görünüyor.";
+  if (w < healthyWeightMin) {
+    weightNote = "Kilon boyuna göre sağlıklı aralığın altında görünüyor.";
+  } else if (w > healthyWeightMax) {
+    weightNote = "Kilon boyuna göre sağlıklı aralığın üzerinde görünüyor.";
+  }
+
+  return {
+    bmr: Math.round(bmr),
+    tdee: Math.round(tdee),
+    recommended: Math.round(recommended),
+    bmi: Number(bmi.toFixed(1)),
+    bmiCategory,
+    healthyWeightMin: Math.round(healthyWeightMin),
+    healthyWeightMax: Math.round(healthyWeightMax),
+    weightNote,
+  };
+}, [age, heightCm, weightKg, sex, activity, goal]);
 
   const totalKcal = useMemo(() => {
     return items.reduce((sum, it) => sum + (Number(it.kcalTotal) || 0), 0);
@@ -554,23 +578,45 @@ useEffect(() => {
                   <Text style={styles.sectionTitle}>Sonuç</Text>
 
                   {!computed ? (
-                    <Text style={styles.muted}>
-                      Lütfen değerleri kontrol edin (yaş, boy, kilo geçerli aralıkta olmalı).
-                    </Text>
-                  ) : (
-                    <>
-                      <ResultRow label="BMR (bazal metabolizma)" value={`${computed.bmr} kcal`} />
-                      <ResultRow label="TDEE (günlük toplam ihtiyaç)" value={`${computed.tdee} kcal`} />
-                      <View style={styles.divider} />
-                      <ResultRow label="Önerilen günlük hedef" value={`${computed.recommended} kcal`} bold />
-                      <Text style={styles.smallMuted}>
-                        Bu hesaplama genel bir tahmindir. Sağlık durumunuza göre profesyonel görüş daha doğru olur.
-                      </Text>
+  <Text style={styles.muted}>
+    Lütfen değerleri kontrol edin (yaş, boy, kilo geçerli aralıkta olmalı).
+  </Text>
+) : (
+  <>
+    <ResultRow
+      label="BMR (bazal metabolizma)"
+      value={`${computed.bmr} kcal`}
+    />
+    <ResultRow
+      label="TDEE (günlük toplam ihtiyaç)"
+      value={`${computed.tdee} kcal`}
+    />
+    <View style={styles.divider} />
+    <ResultRow
+      label="Önerilen günlük hedef"
+      value={`${computed.recommended} kcal`}
+      bold
+    />
+    <ResultRow
+      label="BMI"
+      value={`${computed.bmi} (${computed.bmiCategory})`}
+    />
+    <ResultRow
+      label="Boyuna göre sağlıklı kilo aralığı"
+      value={`${computed.healthyWeightMin} - ${computed.healthyWeightMax} kg`}
+    />
 
-                      <Pressable style={styles.primaryBtn} onPress={() => setMode("track")}>
-                        <Text style={styles.primaryBtnText}>Kaydet ve Takibe Geç</Text>
-                      </Pressable>
-                    </>
+    <Text style={styles.smallMuted}>{computed.weightNote}</Text>
+
+    <Text style={styles.smallMuted}>
+      Not: Tek bir “ideal kilo” yerine sağlıklı kilo aralığı gösterilir.
+      Bu değerler genel tahmindir.
+    </Text>
+
+    <Pressable style={styles.primaryBtn} onPress={() => setMode("track")}>
+      <Text style={styles.primaryBtnText}>Kaydet ve Takibe Geç</Text>
+    </Pressable>
+  </>
                   )}
                 </View>
               </>
