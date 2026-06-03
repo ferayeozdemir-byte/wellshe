@@ -1,5 +1,8 @@
 // app/weekly/book.tsx
-import { Stack } from "expo-router"; // ✅ YENİ EKLENDİ
+
+import { trackEvent } from "@/lib/analytics";
+import { useTrackScreenDuration } from "@/lib/useTrackScreenDuration";
+import { Stack } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -38,6 +41,25 @@ function WeeklyBannerAd() {
 
 export default function WeeklyBookScreen() {
   const [items, setItems] = useState<WeeklyItem[] | null>(null);
+
+  useEffect(() => {
+    void trackEvent({
+      event_name: "screen_view",
+      screen_name: "weekly_book",
+      feature_name: "weekly_screen_view",
+      meta: {
+        weekly_type: "book",
+      },
+    });
+  }, []);
+
+  useTrackScreenDuration({
+    screen_name: "weekly_book",
+    feature_name: "weekly_duration",
+    meta: {
+      weekly_type: "book",
+    },
+  });
 
   useEffect(() => {
     let isMounted = true;

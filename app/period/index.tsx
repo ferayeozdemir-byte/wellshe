@@ -1,12 +1,14 @@
 // app/period/index.tsx
 
 import { trackEvent } from "@/lib/analytics";
+import { useTrackScreenDuration } from "@/lib/useTrackScreenDuration";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { Stack } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
@@ -496,6 +498,10 @@ export default function PeriodScreen() {
     });
   }, []);
 
+  useTrackScreenDuration({
+    screen_name: "period",
+  });
+
   const openUrl = async (url: string) => {
     try {
       await Linking.openURL(url);
@@ -561,25 +567,25 @@ export default function PeriodScreen() {
 
   const cycleDay = lastStartIso
     ? Math.max(
-        differenceInDays(
-          fromLocalISODate(todayKey),
-          fromLocalISODate(lastStartIso)
-        ) + 1,
-        1
-      )
+      differenceInDays(
+        fromLocalISODate(todayKey),
+        fromLocalISODate(lastStartIso)
+      ) + 1,
+      1
+    )
     : null;
 
   const isCurrentlyInPeriod =
     cycleDay !== null &&
     cycleDay >= 1 &&
     cycleDay <=
-      (effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength);
+    (effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength);
 
   const heroEyebrow = isCurrentlyInPeriod
     ? "ŞU ANDA"
     : lateState.isLate
-    ? "BEKLENEN TARİH GEÇTİ"
-    : "TAHMİNİ BİR SONRAKİ REGLİNE";
+      ? "BEKLENEN TARİH GEÇTİ"
+      : "TAHMİNİ BİR SONRAKİ REGLİNE";
 
   const heroMainText = useMemo(() => {
     if (isCurrentlyInPeriod && cycleDay) {
@@ -608,9 +614,8 @@ export default function PeriodScreen() {
     return `${daysUntil} gün kaldı`;
   }, [isCurrentlyInPeriod, cycleDay, nextPeriod, todayKey, lateState]);
 
-  const settingsSummaryLine = `${learnedCycleLength} günlük döngü · ${
-    effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength
-  } gün regl süresi`;
+  const settingsSummaryLine = `${learnedCycleLength} günlük döngü · ${effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength
+    } gün regl süresi`;
 
   const settingsLastPeriodLine = lastStartTR
     ? `Son regl: ${lastStartTR}`
@@ -1150,8 +1155,13 @@ export default function PeriodScreen() {
           transparent
           onRequestClose={() => setSettingsModalVisible(false)}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 24 : 0}
+            style={styles.modalKeyboardAvoid}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalCard}>
               <View style={styles.modalHeaderRow}>
                 <Text style={styles.modalTitle}>Döngü ayarların</Text>
 
@@ -1162,6 +1172,7 @@ export default function PeriodScreen() {
 
               <ScrollView
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.modalContent}
               >
                 <Text style={styles.modalDescription}>
@@ -1232,8 +1243,9 @@ export default function PeriodScreen() {
                   </Text>
                 </Pressable>
               </ScrollView>
+              </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         <ScrollView
@@ -1348,9 +1360,8 @@ export default function PeriodScreen() {
             <MetricCard label="Döngü" value={`${learnedCycleLength} gün`} />
             <MetricCard
               label="Regl süresi"
-              value={`${
-                effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength
-              } gün`}
+              value={`${effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength
+                } gün`}
             />
           </View>
 
@@ -2201,6 +2212,10 @@ const styles = StyleSheet.create({
     color: COLORS.primaryDark,
     fontWeight: "700",
     fontSize: 13,
+  },
+
+  modalKeyboardAvoid: {
+    flex: 1,
   },
 
   modalOverlay: {

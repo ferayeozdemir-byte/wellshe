@@ -59,6 +59,28 @@ export function publicStorageUrl(bucket: string, path: string) {
   return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${path}`;
 }
 
+export type StorageAssetLike = {
+  bucket?: string | null;
+  path?: string | null;
+  public_url?: string | null;
+  storage_provider?: string | null;
+  storage_key?: string | null;
+};
+
+export function resolveAssetUrl(asset?: StorageAssetLike | null) {
+  if (!asset) return null;
+
+  if (asset.public_url) {
+    return asset.public_url;
+  }
+
+  if (asset.bucket && asset.path) {
+    return publicStorageUrl(asset.bucket, asset.path);
+  }
+
+  return null;
+}
+
 function safeJsonParse<T>(text: string): T {
   try {
     return JSON.parse(text) as T;

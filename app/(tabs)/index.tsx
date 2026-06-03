@@ -1,6 +1,7 @@
 // app/(tabs)/index.tsx
 
 import { trackEvent } from "@/lib/analytics";
+import { useTrackScreenDuration } from "@/lib/useTrackScreenDuration";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
@@ -20,6 +21,8 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   SafeAreaView,
@@ -33,6 +36,10 @@ import {
 import AdBanner from "../../components/AdBanner";
 import { type CategoryId } from "../../data/content";
 import { weeklyArchive, type WeeklyItem } from "../../data/weekly";
+import {
+  fetchActiveAnnouncements,
+  type HomeAnnouncement,
+} from "../../lib/announcementsRemote";
 import { fetchLatestArticlesRemote } from "../../lib/categoriesRemote";
 import {
   formatDateTRFromISO,
@@ -50,11 +57,16 @@ console.log("channel", Updates.channel);
 console.log("appVersion", Constants.expoConfig?.version);
 
 const FAVORITES_KEY = "favorite_articles";
+const ANNOUNCEMENT_READ_IDS_KEY = "wellshe_announcement_read_ids";
+const ANNOUNCEMENT_DELETED_IDS_KEY = "wellshe_announcement_deleted_ids";
+
 
 // 🔔 Hatırlatıcılar için AsyncStorage anahtarları (id’leri saklarız)
 const WATER_IDS_KEY = "wellshe_water_notification_ids";
 const MOVE_IDS_KEY = "wellshe_move_notification_ids";
 const ASTRO_IDS_KEY = "wellshe_astro_notification_ids";
+const WATER_REMINDER_SETTINGS_KEY = "wellshe_water_reminder_settings_v1";
+const MOVE_REMINDER_SETTINGS_KEY = "wellshe_move_reminder_settings_v1";
 
 // ✅ OTA prompt davranışı (session bazlı)
 const OTA_SESSION_SUPPRESS_KEY = "wellshe_ota_suppress_this_session";
@@ -75,6 +87,18 @@ type PeriodSettings = {
 
 type PeriodLog = {
   startDate: string; // "2025-11-10" gibi (ISO)
+};
+
+type WaterReminderSettings = {
+  enabled: boolean;
+  startTime: string;
+  endTime: string;
+  intervalMinutes: number;
+};
+
+type MoveReminderSettings = {
+  enabled: boolean;
+  times: string[];
 };
 
 type CyclePhase =
@@ -169,6 +193,32 @@ function pickLatestWeekly(
     getKey(b).localeCompare(getKey(a))
   );
   return sorted[0] ?? arr[0] ?? null;
+}
+
+function parseStoredIdList(raw: string | null): string[] {
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((item) => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatAnnouncementDate(value?: string | null) {
+  if (!value) return "";
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  return parsed.toLocaleDateString("tr-TR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
 }
 
 // Kategori menüsü
@@ -318,6 +368,21 @@ const MOTIVATION_START_DATE = new Date("2025-01-01").getTime();
 const WATER_GOAL = 6;
 const WATER_TRACK_KEY = "wellshe_water_today";
 
+const DEFAULT_WATER_REMINDER_SETTINGS: WaterReminderSettings = {
+  enabled: false,
+  startTime: "09:00",
+  endTime: "22:00",
+  intervalMinutes: 60,
+};
+
+const DEFAULT_MOVE_REMINDER_SETTINGS: MoveReminderSettings = {
+  enabled: false,
+  times: ["10:00", "13:30", "17:45"],
+};
+
+const WATER_INTERVAL_PRESETS = [30, 45, 60, 90, 120, 180, 240];
+const MAX_MOVE_REMINDER_TIMES = 8;
+
 // 🔁 Faz anahtarından tek cümlelik mini öneri (Home kartı için)
 function getPhaseOneLinerFromKey(phaseKey: CyclePhase): string {
   if (phaseKey === "menstruation") {
@@ -346,19 +411,158 @@ function getTodayMotivation(): string {
   return MOTIVATION_QUOTES[index];
 }
 
+function padTimePart(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function normalizeClockInput(value: string): string | null {
+  const raw = value.trim().replace(".", ":");
+
+  if (!raw) return null;
+
+  const colonMatch = raw.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (colonMatch) {
+    const hour = Number(colonMatch[1]);
+    const minute = Number(colonMatch[2]);
+
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return `${padTimePart(hour)}:${padTimePart(minute)}`;
+    }
+
+    return null;
+  }
+
+  const digits = raw.replace(/\D/g, "");
+
+  if (digits.length <= 2) {
+    const hour = Number(digits);
+    if (hour >= 0 && hour <= 23) return `${padTimePart(hour)}:00`;
+    return null;
+  }
+
+  if (digits.length === 3 || digits.length === 4) {
+    const hour = Number(digits.slice(0, digits.length - 2));
+    const minute = Number(digits.slice(-2));
+
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return `${padTimePart(hour)}:${padTimePart(minute)}`;
+    }
+  }
+
+  return null;
+}
+
+function minutesFromClock(value: string): number | null {
+  const normalized = normalizeClockInput(value);
+  if (!normalized) return null;
+
+  const [hour, minute] = normalized.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function clockFromMinutes(value: number) {
+  const minutesInDay = 24 * 60;
+  const normalized = ((value % minutesInDay) + minutesInDay) % minutesInDay;
+  const hour = Math.floor(normalized / 60);
+  const minute = normalized % 60;
+
+  return `${padTimePart(hour)}:${padTimePart(minute)}`;
+}
+
+function buildWaterReminderTimes(
+  startTime: string,
+  endTime: string,
+  intervalMinutes: number
+): string[] {
+  const start = minutesFromClock(startTime);
+  const end = minutesFromClock(endTime);
+
+  if (start == null || end == null || end <= start || intervalMinutes <= 0) {
+    return [];
+  }
+
+  const times: string[] = [];
+
+  for (let current = start; current <= end; current += intervalMinutes) {
+    times.push(clockFromMinutes(current));
+  }
+
+  return times;
+}
+
+function sanitizeMoveTimes(times: string[]): string[] {
+  const normalized = times
+    .map((time) => normalizeClockInput(time))
+    .filter((time): time is string => !!time);
+
+  return Array.from(new Set(normalized)).sort((a, b) => {
+    const aMinutes = minutesFromClock(a) ?? 0;
+    const bMinutes = minutesFromClock(b) ?? 0;
+    return aMinutes - bMinutes;
+  });
+}
+
+function formatTimesForAlert(times: string[]) {
+  if (times.length <= 4) return times.join(", ");
+  return `${times.slice(0, 4).join(", ")} ve ${times.length - 4} saat daha`;
+}
+
+function parseWaterReminderSettings(raw: string | null): WaterReminderSettings {
+  if (!raw) return DEFAULT_WATER_REMINDER_SETTINGS;
+
+  try {
+    const parsed = JSON.parse(raw);
+    const startTime = normalizeClockInput(String(parsed?.startTime ?? ""));
+    const endTime = normalizeClockInput(String(parsed?.endTime ?? ""));
+    const intervalMinutes = Number(parsed?.intervalMinutes);
+
+    if (!startTime || !endTime || !Number.isFinite(intervalMinutes)) {
+      return DEFAULT_WATER_REMINDER_SETTINGS;
+    }
+
+    return {
+      enabled: Boolean(parsed?.enabled),
+      startTime,
+      endTime,
+      intervalMinutes: Math.round(intervalMinutes),
+    };
+  } catch {
+    return DEFAULT_WATER_REMINDER_SETTINGS;
+  }
+}
+
+function parseMoveReminderSettings(raw: string | null): MoveReminderSettings {
+  if (!raw) return DEFAULT_MOVE_REMINDER_SETTINGS;
+
+  try {
+    const parsed = JSON.parse(raw);
+    const times = sanitizeMoveTimes(Array.isArray(parsed?.times) ? parsed.times : []);
+
+    return {
+      enabled: Boolean(parsed?.enabled),
+      times: times.length > 0 ? times : DEFAULT_MOVE_REMINDER_SETTINGS.times,
+    };
+  } catch {
+    return DEFAULT_MOVE_REMINDER_SETTINGS;
+  }
+}
+
 export default function HomeScreen() {
   const [showSponsor, setShowSponsor] = useState(true);
 
   // Home mount log
   useEffect(() => {
-  console.log("HOME INDEX LOADED ✅", new Date().toISOString());
+    console.log("HOME INDEX LOADED ✅", new Date().toISOString());
 
-  void trackEvent({
-  event_name: "screen_view",
-  screen_name: "home",
-});
+    void trackEvent({
+      event_name: "screen_view",
+      screen_name: "home",
+    });
+  }, []);
 
-}, []);
+  useTrackScreenDuration({
+    screen_name: "home",
+  });
 
   const router = useRouter();
 
@@ -545,6 +749,195 @@ export default function HomeScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [waterCount, setWaterCount] = useState(0);
   const [homeSearchQuery, setHomeSearchQuery] = useState("");
+
+  const [waterReminderModalVisible, setWaterReminderModalVisible] =
+    useState(false);
+  const [moveReminderModalVisible, setMoveReminderModalVisible] =
+    useState(false);
+
+  const [waterReminderSettings, setWaterReminderSettings] =
+    useState<WaterReminderSettings>(DEFAULT_WATER_REMINDER_SETTINGS);
+  const [waterStartInput, setWaterStartInput] = useState(
+    DEFAULT_WATER_REMINDER_SETTINGS.startTime
+  );
+  const [waterEndInput, setWaterEndInput] = useState(
+    DEFAULT_WATER_REMINDER_SETTINGS.endTime
+  );
+  const [waterIntervalInput, setWaterIntervalInput] = useState(
+    String(DEFAULT_WATER_REMINDER_SETTINGS.intervalMinutes)
+  );
+
+  const [moveReminderSettings, setMoveReminderSettings] =
+    useState<MoveReminderSettings>(DEFAULT_MOVE_REMINDER_SETTINGS);
+  const [moveReminderTimesInput, setMoveReminderTimesInput] = useState<string[]>(
+    DEFAULT_MOVE_REMINDER_SETTINGS.times
+  );
+  const [moveTimeInput, setMoveTimeInput] = useState("13:00");
+
+  const [announcements, setAnnouncements] = useState<HomeAnnouncement[]>([]);
+  const [announcementsVisible, setAnnouncementsVisible] = useState(false);
+  const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>([]);
+  const [deletedAnnouncementIds, setDeletedAnnouncementIds] = useState<string[]>(
+    []
+  );
+
+  const loadAnnouncements = useCallback(async () => {
+    try {
+      const [remoteAnnouncements, readRaw, deletedRaw] = await Promise.all([
+        fetchActiveAnnouncements(),
+        AsyncStorage.getItem(ANNOUNCEMENT_READ_IDS_KEY),
+        AsyncStorage.getItem(ANNOUNCEMENT_DELETED_IDS_KEY),
+      ]);
+
+      setAnnouncements(remoteAnnouncements);
+      setReadAnnouncementIds(parseStoredIdList(readRaw));
+      setDeletedAnnouncementIds(parseStoredIdList(deletedRaw));
+    } catch (e) {
+      console.log("Duyurular yüklenirken hata:", e);
+      setAnnouncements([]);
+      setReadAnnouncementIds([]);
+      setDeletedAnnouncementIds([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAnnouncements();
+  }, [loadAnnouncements]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadAnnouncements();
+    }, [loadAnnouncements])
+  );
+
+  const loadReminderSettings = useCallback(async () => {
+    try {
+      const [waterRaw, moveRaw] = await Promise.all([
+        AsyncStorage.getItem(WATER_REMINDER_SETTINGS_KEY),
+        AsyncStorage.getItem(MOVE_REMINDER_SETTINGS_KEY),
+      ]);
+
+      const waterSettings = parseWaterReminderSettings(waterRaw);
+      const moveSettings = parseMoveReminderSettings(moveRaw);
+
+      setWaterReminderSettings(waterSettings);
+      setWaterStartInput(waterSettings.startTime);
+      setWaterEndInput(waterSettings.endTime);
+      setWaterIntervalInput(String(waterSettings.intervalMinutes));
+
+      setMoveReminderSettings(moveSettings);
+      setMoveReminderTimesInput(moveSettings.times);
+    } catch (e) {
+      console.log("Hatırlatıcı ayarları yüklenirken hata:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadReminderSettings();
+  }, [loadReminderSettings]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadReminderSettings();
+    }, [loadReminderSettings])
+  );
+
+  const activeAnnouncements = useMemo(
+    () =>
+      announcements.filter(
+        (announcement) => !deletedAnnouncementIds.includes(announcement.id)
+      ),
+    [announcements, deletedAnnouncementIds]
+  );
+
+  const unreadAnnouncements = useMemo(
+    () =>
+      activeAnnouncements.filter(
+        (announcement) => !readAnnouncementIds.includes(announcement.id)
+      ),
+    [activeAnnouncements, readAnnouncementIds]
+  );
+
+  const unreadAnnouncementCount = unreadAnnouncements.length;
+
+  const handleOpenAnnouncements = () => {
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: "announcements_open",
+      meta: {
+        total_announcements: activeAnnouncements.length,
+        unread_announcements: unreadAnnouncementCount,
+      },
+    });
+
+    setAnnouncementsVisible(true);
+  };
+
+  const handleMarkAnnouncementRead = async (announcement: HomeAnnouncement) => {
+    if (readAnnouncementIds.includes(announcement.id)) return;
+
+    const next = Array.from(new Set([...readAnnouncementIds, announcement.id]));
+
+    setReadAnnouncementIds(next);
+
+    try {
+      await AsyncStorage.setItem(
+        ANNOUNCEMENT_READ_IDS_KEY,
+        JSON.stringify(next)
+      );
+    } catch (e) {
+      console.log("Duyuru okundu kaydı hatası:", e);
+    }
+
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: "announcement_mark_read",
+      meta: {
+        announcement_id: announcement.id,
+        announcement_title: announcement.title,
+      },
+    });
+  };
+
+  const handleDeleteAnnouncement = async (announcement: HomeAnnouncement) => {
+    const nextDeleted = Array.from(
+      new Set([...deletedAnnouncementIds, announcement.id])
+    );
+
+    const nextRead = Array.from(
+      new Set([...readAnnouncementIds, announcement.id])
+    );
+
+    setDeletedAnnouncementIds(nextDeleted);
+    setReadAnnouncementIds(nextRead);
+
+    try {
+      await Promise.all([
+        AsyncStorage.setItem(
+          ANNOUNCEMENT_DELETED_IDS_KEY,
+          JSON.stringify(nextDeleted)
+        ),
+        AsyncStorage.setItem(
+          ANNOUNCEMENT_READ_IDS_KEY,
+          JSON.stringify(nextRead)
+        ),
+      ]);
+    } catch (e) {
+      console.log("Duyuru silme kaydı hatası:", e);
+    }
+
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: "announcement_delete",
+      meta: {
+        announcement_id: announcement.id,
+        announcement_title: announcement.title,
+      },
+    });
+  };
 
   // 🔹 Su sayacı – gün bazlı kalıcı hale getir
   const loadWaterForToday = useCallback(async () => {
@@ -743,6 +1136,20 @@ export default function HomeScreen() {
     "Bu haftanın kitap önerisini keşfet."
   );
 
+  useEffect(() => {
+    if (!name || showSponsor) return;
+
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: "sponsor_view",
+      meta: {
+        sponsor_name: "Global Solar",
+        placement: "home_sponsor_row",
+      },
+    });
+  }, [name, showSponsor]);
+
   // Regl verilerini storage'dan okuyup cycleInfo'yu güncelleyen fonksiyon
   const loadPeriodData = useCallback(async () => {
   try {
@@ -885,13 +1292,58 @@ export default function HomeScreen() {
     }, [loadLatestRemote])
   );
 
-  // ✅ Su hatırlatıcısı (DAILY / süresiz)
-  const handleWaterReminder = async () => {
+  const openWaterReminderSettings = () => {
+    setWaterStartInput(waterReminderSettings.startTime);
+    setWaterEndInput(waterReminderSettings.endTime);
+    setWaterIntervalInput(String(waterReminderSettings.intervalMinutes));
+
     void trackEvent({
-  event_name: "feature_used",
-  screen_name: "home",
-  feature_name: "water_reminder_click",
-});
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: "water_reminder_click",
+    });
+
+    setWaterReminderModalVisible(true);
+  };
+
+  const handleWaterReminder = openWaterReminderSettings;
+
+  const handleSaveWaterReminderSettings = async () => {
+    const startTime = normalizeClockInput(waterStartInput);
+    const endTime = normalizeClockInput(waterEndInput);
+    const intervalMinutes = Number.parseInt(waterIntervalInput.trim(), 10);
+
+    if (!startTime || !endTime) {
+      Alert.alert("Saat bilgisi eksik", "Lütfen başlangıç ve bitiş saatini 09:00 formatında gir.");
+      return;
+    }
+
+    if (!Number.isFinite(intervalMinutes) || intervalMinutes < 15 || intervalMinutes > 480) {
+      Alert.alert(
+        "Aralık uygun değil",
+        "Su hatırlatma aralığını 15 ile 480 dakika arasında seçebilirsin."
+      );
+      return;
+    }
+
+    const times = buildWaterReminderTimes(startTime, endTime, intervalMinutes);
+
+    if (times.length === 0) {
+      Alert.alert(
+        "Saat aralığı uygun değil",
+        "Bitiş saati başlangıç saatinden sonra olmalı."
+      );
+      return;
+    }
+
+    if (times.length > 24) {
+      Alert.alert(
+        "Çok fazla bildirim",
+        "Bu ayar günde çok fazla bildirim oluşturuyor. Aralığı biraz artırmayı dene."
+      );
+      return;
+    }
+
     try {
       const ok = await ensureNotificationPermission();
       if (!ok) {
@@ -905,16 +1357,12 @@ export default function HomeScreen() {
       await ensureAndroidChannel();
       await cancelStoredNotifications(WATER_IDS_KEY);
 
-      const times = [
-        { hour: 10, minute: 0 },
-        { hour: 13, minute: 0 },
-        { hour: 16, minute: 0 },
-        { hour: 20, minute: 0 },
-      ];
-
       const ids: string[] = [];
 
-      for (const t of times) {
+      for (const time of times) {
+        const minutes = minutesFromClock(time);
+        if (minutes == null) continue;
+
         const id = await Notifications.scheduleNotificationAsync({
           content: {
             title: "Su zamanı 💧",
@@ -924,30 +1372,142 @@ export default function HomeScreen() {
           },
           trigger: {
             type: Notifications.SchedulableTriggerInputTypes.DAILY,
-            hour: t.hour,
-            minute: t.minute,
+            hour: Math.floor(minutes / 60),
+            minute: minutes % 60,
           },
         });
 
         ids.push(id);
       }
 
-      await AsyncStorage.setItem(WATER_IDS_KEY, JSON.stringify(ids));
+      const nextSettings: WaterReminderSettings = {
+        enabled: true,
+        startTime,
+        endTime,
+        intervalMinutes,
+      };
 
-      Alert.alert("Tamamdır 💧", "Her gün 4 saatte bir su hatırlatıcısı alacaksın.");
+      await Promise.all([
+        AsyncStorage.setItem(WATER_IDS_KEY, JSON.stringify(ids)),
+        AsyncStorage.setItem(
+          WATER_REMINDER_SETTINGS_KEY,
+          JSON.stringify(nextSettings)
+        ),
+      ]);
+
+      setWaterReminderSettings(nextSettings);
+      setWaterStartInput(startTime);
+      setWaterEndInput(endTime);
+      setWaterIntervalInput(String(intervalMinutes));
+      setWaterReminderModalVisible(false);
+
+      void trackEvent({
+        event_name: "feature_used",
+        screen_name: "home",
+        feature_name: "water_reminder_save",
+        meta: {
+          start_time: startTime,
+          end_time: endTime,
+          interval_minutes: intervalMinutes,
+          notification_count: ids.length,
+        },
+      });
+
+      Alert.alert(
+        "Tamamdır 💧",
+        `${startTime} - ${endTime} arasında ${intervalMinutes} dakikada bir su hatırlatıcısı alacaksın.`
+      );
     } catch (e) {
       console.log("Su bildirimi planlanırken hata:", e);
       Alert.alert("Hata", "Su hatırlatıcısı ayarlanırken bir sorun oluştu.");
     }
   };
 
-  // ✅ Günlük hareket hatırlatıcısı (DAILY / süresiz)
-  const handleDailyMoveReminder = async () => {
+  const handleDisableWaterReminder = async () => {
+    try {
+      await cancelStoredNotifications(WATER_IDS_KEY);
+
+      const nextSettings: WaterReminderSettings = {
+        ...waterReminderSettings,
+        enabled: false,
+      };
+
+      await AsyncStorage.setItem(
+        WATER_REMINDER_SETTINGS_KEY,
+        JSON.stringify(nextSettings)
+      );
+
+      setWaterReminderSettings(nextSettings);
+      setWaterReminderModalVisible(false);
+
+      void trackEvent({
+        event_name: "feature_used",
+        screen_name: "home",
+        feature_name: "water_reminder_disable",
+      });
+
+      Alert.alert("Kapatıldı", "Su hatırlatıcıların kapatıldı.");
+    } catch (e) {
+      console.log("Su hatırlatıcısı kapatılırken hata:", e);
+      Alert.alert("Hata", "Su hatırlatıcısı kapatılırken bir sorun oluştu.");
+    }
+  };
+
+  const openMoveReminderSettings = () => {
+    setMoveReminderTimesInput(moveReminderSettings.times);
+
     void trackEvent({
-  event_name: "feature_used",
-  screen_name: "home",
-  feature_name: "move_reminder_click",
-});
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: "move_reminder_click",
+    });
+
+    setMoveReminderModalVisible(true);
+  };
+
+  const handleDailyMoveReminder = openMoveReminderSettings;
+
+  const handleAddMoveReminderTime = () => {
+    const normalized = normalizeClockInput(moveTimeInput);
+
+    if (!normalized) {
+      Alert.alert("Saat uygun değil", "Lütfen saati 09:00 formatında gir.");
+      return;
+    }
+
+    if (moveReminderTimesInput.includes(normalized)) {
+      Alert.alert("Bu saat zaten ekli", `${normalized} zaten hatırlatıcı listende var.`);
+      return;
+    }
+
+    if (moveReminderTimesInput.length >= MAX_MOVE_REMINDER_TIMES) {
+      Alert.alert(
+        "Sınır doldu",
+        `Günde en fazla ${MAX_MOVE_REMINDER_TIMES} hareket hatırlatıcısı ekleyebilirsin.`
+      );
+      return;
+    }
+
+    const next = sanitizeMoveTimes([...moveReminderTimesInput, normalized]);
+    setMoveReminderTimesInput(next);
+    setMoveTimeInput(normalized);
+  };
+
+  const handleRemoveMoveReminderTime = (time: string) => {
+    setMoveReminderTimesInput((prev) => prev.filter((item) => item !== time));
+  };
+
+  const handleSaveMoveReminderSettings = async () => {
+    const times = sanitizeMoveTimes(moveReminderTimesInput);
+
+    if (times.length === 0) {
+      Alert.alert(
+        "Saat seçmelisin",
+        "Hareket hatırlatıcısını açmak için en az bir saat eklemelisin."
+      );
+      return;
+    }
+
     try {
       const ok = await ensureNotificationPermission();
       if (!ok) {
@@ -958,26 +1518,90 @@ export default function HomeScreen() {
       await ensureAndroidChannel();
       await cancelStoredNotifications(MOVE_IDS_KEY);
 
-      const id = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: "Hareket Zamanı 🧘‍♀️",
-          body: "Kısa bir yürüyüş veya esneme ile bedenini harekete geçir.",
-          sound: false,
-          ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
-        },
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DAILY,
-          hour: 13,
-          minute: 0,
+      const ids: string[] = [];
+
+      for (const time of times) {
+        const minutes = minutesFromClock(time);
+        if (minutes == null) continue;
+
+        const id = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "Hareket Zamanı 🧘‍♀️",
+            body: "Kısa bir yürüyüş veya esneme ile bedenini harekete geçir.",
+            sound: false,
+            ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DAILY,
+            hour: Math.floor(minutes / 60),
+            minute: minutes % 60,
+          },
+        });
+
+        ids.push(id);
+      }
+
+      const nextSettings: MoveReminderSettings = {
+        enabled: true,
+        times,
+      };
+
+      await Promise.all([
+        AsyncStorage.setItem(MOVE_IDS_KEY, JSON.stringify(ids)),
+        AsyncStorage.setItem(MOVE_REMINDER_SETTINGS_KEY, JSON.stringify(nextSettings)),
+      ]);
+
+      setMoveReminderSettings(nextSettings);
+      setMoveReminderTimesInput(times);
+      setMoveReminderModalVisible(false);
+
+      void trackEvent({
+        event_name: "feature_used",
+        screen_name: "home",
+        feature_name: "move_reminder_save",
+        meta: {
+          reminder_count: ids.length,
+          times: times.join(","),
         },
       });
 
-      await AsyncStorage.setItem(MOVE_IDS_KEY, JSON.stringify([id]));
-
-      Alert.alert("Tamam 🧡", "Her gün 13:00'te hareket hatırlatıcısı alacaksın.");
+      Alert.alert(
+        "Tamam 🧡",
+        `Hareket hatırlatıcın şu saatlere kuruldu: ${formatTimesForAlert(times)}.`
+      );
     } catch (e) {
       console.log("Hareket bildirimi planlanirken hata:", e);
       Alert.alert("Hata", "Hareket hatırlatıcısı ayarlanırken bir sorun oluştu.");
+    }
+  };
+
+  const handleDisableMoveReminder = async () => {
+    try {
+      await cancelStoredNotifications(MOVE_IDS_KEY);
+
+      const nextSettings: MoveReminderSettings = {
+        ...moveReminderSettings,
+        enabled: false,
+      };
+
+      await AsyncStorage.setItem(
+        MOVE_REMINDER_SETTINGS_KEY,
+        JSON.stringify(nextSettings)
+      );
+
+      setMoveReminderSettings(nextSettings);
+      setMoveReminderModalVisible(false);
+
+      void trackEvent({
+        event_name: "feature_used",
+        screen_name: "home",
+        feature_name: "move_reminder_disable",
+      });
+
+      Alert.alert("Kapatıldı", "Hareket hatırlatıcıların kapatıldı.");
+    } catch (e) {
+      console.log("Hareket hatırlatıcısı kapatılırken hata:", e);
+      Alert.alert("Hata", "Hareket hatırlatıcısı kapatılırken bir sorun oluştu.");
     }
   };
 
@@ -1039,43 +1663,154 @@ export default function HomeScreen() {
     setName(trimmed);
   };
 
-  const handleCategoryPress = (key: string) => {
-  router.push(`/categories/${key}`);
-};
+  const handleCategoryPress = (key: CategoryKey) => {
+    const category = categories.find((item) => item.key === key);
 
-const handleHomeSearchSubmit = () => {
-  const q = homeSearchQuery.trim();
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: "category_click",
+      meta: {
+        category_id: key,
+        category_label: category?.label.replace(/\n/g, " ") ?? key,
+      },
+    });
 
-  if (q.length < 2) {
-    Alert.alert("Arama", "Lütfen en az 2 karakter girin.");
-    return;
-  }
+    router.push(`/categories/${key}`);
+  };
 
-  router.push({
-    pathname: "/search",
-    params: { q },
-  });
-};
+  const handlePeriodPress = (source: "cycle_card" | "cycle_empty") => {
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: "period_card_click",
+      meta: {
+        source,
+      },
+    });
+
+    router.push("/period");
+  };
+
+  const handleCaloriePress = () => {
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: "calorie_card_click",
+    });
+
+    router.push("/calorie");
+  };
+
+  const handlePracticesPress = () => {
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: "practices_card_click",
+    });
+
+    router.push("/practices");
+  };
+
+  const handleWeeklyPress = (type: "movie" | "music" | "book") => {
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: `weekly_${type}_click`,
+      meta: {
+        weekly_type: type,
+      },
+    });
+
+    if (type === "movie") router.push("/weekly/movie");
+    if (type === "music") router.push("/weekly/music");
+    if (type === "book") router.push("/weekly/book");
+  };
+
+  const handleLatestArticlePress = (article: {
+    id: string;
+    title: string;
+    summary: string;
+    slug: string | null;
+    categoryLabel: string;
+    categoryKey: CategoryKey | null;
+    coverUrl: string | null;
+  }) => {
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: "latest_article_click",
+      article_id: article.id,
+      article_title: article.title,
+      meta: {
+        category_key: article.categoryKey ?? "",
+        category_label: article.categoryLabel,
+      },
+    });
+
+    router.push({
+      pathname: article.slug ? `/article/${article.slug}` : `/article/${article.id}`,
+      params: {
+        articleId: article.id,
+        initialTitle: article.title,
+        initialSummary: article.summary,
+        initialCoverUrl: article.coverUrl ?? "",
+      },
+    });
+  };
+
+  const handleHomeSearchSubmit = () => {
+    const q = homeSearchQuery.trim();
+
+    if (q.length < 2) {
+      Alert.alert("Arama", "Lütfen en az 2 karakter girin.");
+      return;
+    }
+
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "home",
+      feature_name: "home_search_submit",
+      meta: {
+        query_length: q.length,
+      },
+    });
+
+    router.push({
+      pathname: "/search",
+      params: { q },
+    });
+  };
 
   // Su sayacını değiştir + AsyncStorage'a kaydet (günlük)
   const changeWaterCount = (delta: number) => {
-  const todayKey = toISODate(new Date());
+    const todayKey = toISODate(new Date());
 
-  setWaterCount((prev: number) => {
-    let next = prev + delta;
+    setWaterCount((prev: number) => {
+      let next = prev + delta;
 
-    if (next < 0) next = 0;
+      if (next < 0) next = 0;
 
-    AsyncStorage.setItem(
-      WATER_TRACK_KEY,
-      JSON.stringify({ date: todayKey, count: next })
-    ).catch((e) => {
-      console.log("Su sayacı kaydedilirken hata:", e);
+      void trackEvent({
+        event_name: "feature_used",
+        screen_name: "home",
+        feature_name: delta > 0 ? "water_count_increment" : "water_count_decrement",
+        meta: {
+          previous_count: prev,
+          next_count: next,
+        },
+      });
+
+      AsyncStorage.setItem(
+        WATER_TRACK_KEY,
+        JSON.stringify({ date: todayKey, count: next })
+      ).catch((e) => {
+        console.log("Su sayacı kaydedilirken hata:", e);
+      });
+
+      return next;
     });
-
-    return next;
-  });
-};
+  };
 
   if (isLoading) {
     return (
@@ -1119,6 +1854,400 @@ const handleHomeSearchSubmit = () => {
   // Ana ekran
   return (
     <SafeAreaView style={styles.safeArea}>
+
+      <Modal
+        visible={announcementsVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAnnouncementsVisible(false)}
+      >
+        <View style={styles.announcementOverlay}>
+          <View style={styles.announcementModalCard}>
+            <View style={styles.announcementHeaderRow}>
+              <View>
+                <Text style={styles.announcementEyebrow}>WELLSHE</Text>
+                <Text style={styles.announcementModalTitle}>Duyurular</Text>
+              </View>
+
+              <Pressable
+                onPress={() => setAnnouncementsVisible(false)}
+                style={styles.announcementCloseButton}
+              >
+                <Text style={styles.announcementCloseText}>Kapat</Text>
+              </Pressable>
+            </View>
+
+            {activeAnnouncements.length === 0 ? (
+              <View style={styles.announcementEmptyCard}>
+                <Ionicons
+                  name="notifications-outline"
+                  size={26}
+                  color="#B0756F"
+                />
+                <Text style={styles.announcementEmptyTitle}>
+                  Şu anda yeni duyuru yok
+                </Text>
+                <Text style={styles.announcementEmptyText}>
+                  Yeni bir gelişme olduğunda burada görebilirsin.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView
+                style={styles.announcementList}
+                contentContainerStyle={styles.announcementListContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {activeAnnouncements.map((announcement) => {
+                  const isRead = readAnnouncementIds.includes(announcement.id);
+
+                  return (
+                    <View
+                      key={announcement.id}
+                      style={[
+                        styles.announcementCard,
+                        isRead ? styles.announcementCardRead : null,
+                      ]}
+                    >
+                      <View style={styles.announcementCardTop}>
+                        <Text style={styles.announcementDate}>
+                          {formatAnnouncementDate(announcement.created_at)}
+                        </Text>
+
+                        {!isRead ? (
+                          <View style={styles.announcementNewBadge}>
+                            <Text style={styles.announcementNewBadgeText}>
+                              Yeni
+                            </Text>
+                          </View>
+                        ) : (
+                          <Text style={styles.announcementReadLabel}>
+                            Okundu
+                          </Text>
+                        )}
+                      </View>
+
+                      <Text style={styles.announcementTitle}>
+                        {announcement.title}
+                      </Text>
+                      <Text style={styles.announcementBody}>
+                        {announcement.body}
+                      </Text>
+
+                      <View style={styles.announcementActions}>
+                        {!isRead ? (
+                          <Pressable
+                            style={styles.announcementPrimaryAction}
+                            onPress={() =>
+                              handleMarkAnnouncementRead(announcement)
+                            }
+                          >
+                            <Text style={styles.announcementPrimaryActionText}>
+                              Okudum
+                            </Text>
+                          </Pressable>
+                        ) : null}
+
+                        <Pressable
+                          style={styles.announcementDeleteAction}
+                          onPress={() => handleDeleteAnnouncement(announcement)}
+                        >
+                          <Text style={styles.announcementDeleteActionText}>
+                            Sil
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={waterReminderModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setWaterReminderModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 16 : 0}
+          style={styles.reminderOverlay}
+        >
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.reminderKeyboardScrollContent}
+          >
+            <View style={styles.reminderModalCard}>
+            <View style={styles.reminderModalHandle} />
+
+            <View style={styles.reminderModalHeader}>
+              <View style={styles.reminderTitleRow}>
+                <Text style={styles.reminderEmoji}>💧</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.reminderModalTitle}>
+                    Su Hatırlatıcısı Ayarları
+                  </Text>
+                  <Text style={styles.reminderModalSubtitle}>
+                    Gün içindeki su molalarını kendi ritmine göre ayarla.
+                  </Text>
+                </View>
+              </View>
+
+              <Pressable
+                onPress={() => setWaterReminderModalVisible(false)}
+                hitSlop={10}
+              >
+                <Text style={styles.reminderCloseText}>Kapat</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.reminderStatusBox}>
+              <Text style={styles.reminderStatusText}>
+                Hatırlatıcı {waterReminderSettings.enabled ? "açık" : "kapalı"}
+              </Text>
+              <View
+                style={[
+                  styles.reminderStatusDot,
+                  waterReminderSettings.enabled
+                    ? styles.reminderStatusDotActive
+                    : null,
+                ]}
+              />
+            </View>
+
+            <View style={styles.reminderFormCard}>
+              <View style={styles.reminderInputRow}>
+                <View style={styles.reminderInputLabelRow}>
+                  <Ionicons name="time-outline" size={18} color="#7A5751" />
+                  <Text style={styles.reminderInputLabel}>Başlangıç saati</Text>
+                </View>
+                <TextInput
+                  value={waterStartInput}
+                  onChangeText={setWaterStartInput}
+                  placeholder="09:00"
+                  placeholderTextColor="#B99B95"
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={5}
+                  style={styles.reminderTimeInput}
+                />
+              </View>
+
+              <View style={styles.reminderInputRow}>
+                <View style={styles.reminderInputLabelRow}>
+                  <Ionicons name="time-outline" size={18} color="#7A5751" />
+                  <Text style={styles.reminderInputLabel}>Bitiş saati</Text>
+                </View>
+                <TextInput
+                  value={waterEndInput}
+                  onChangeText={setWaterEndInput}
+                  placeholder="22:00"
+                  placeholderTextColor="#B99B95"
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={5}
+                  style={styles.reminderTimeInput}
+                />
+              </View>
+
+              <View style={styles.reminderInputRowLast}>
+                <View style={styles.reminderInputLabelRow}>
+                  <Ionicons name="repeat-outline" size={18} color="#7A5751" />
+                  <Text style={styles.reminderInputLabel}>
+                    Hatırlatma aralığı (dakika)
+                  </Text>
+                </View>
+                <TextInput
+                  value={waterIntervalInput}
+                  onChangeText={(value) =>
+                    setWaterIntervalInput(value.replace(/[^0-9]/g, ""))
+                  }
+                  placeholder="60"
+                  placeholderTextColor="#B99B95"
+                  keyboardType="number-pad"
+                  maxLength={3}
+                  style={styles.reminderTimeInput}
+                />
+              </View>
+
+              <Text style={styles.reminderHelperText}>
+                İstediğin dakikayı yazabilir ya da hazır seçeneklerden birini
+                seçebilirsin.
+              </Text>
+
+              <View style={styles.reminderChipRow}>
+                {WATER_INTERVAL_PRESETS.map((minutes) => {
+                  const selected = waterIntervalInput === String(minutes);
+
+                  return (
+                    <Pressable
+                      key={minutes}
+                      style={[
+                        styles.reminderChip,
+                        selected ? styles.reminderChipSelected : null,
+                      ]}
+                      onPress={() => setWaterIntervalInput(String(minutes))}
+                    >
+                      <Text
+                        style={[
+                          styles.reminderChipText,
+                          selected ? styles.reminderChipTextSelected : null,
+                        ]}
+                      >
+                        {minutes} dk
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <Pressable
+              style={styles.reminderPrimaryButton}
+              onPress={handleSaveWaterReminderSettings}
+            >
+              <Text style={styles.reminderPrimaryButtonText}>Kaydet</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.reminderSecondaryButton}
+              onPress={handleDisableWaterReminder}
+            >
+              <Text style={styles.reminderSecondaryButtonText}>
+                Hatırlatıcıyı kapat
+              </Text>
+            </Pressable>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={moveReminderModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMoveReminderModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 16 : 0}
+          style={styles.reminderOverlay}
+        >
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.reminderKeyboardScrollContent}
+          >
+            <View style={styles.reminderModalCard}>
+            <View style={styles.reminderModalHandle} />
+
+            <View style={styles.reminderModalHeader}>
+              <View style={styles.reminderTitleRow}>
+                <Text style={styles.reminderEmoji}>🧘‍♀️</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.reminderModalTitle}>
+                    Hareket Hatırlatıcısı
+                  </Text>
+                  <Text style={styles.reminderModalSubtitle}>
+                    Gün içinde istediğin saatlerde kısa hareket molaları ekle.
+                  </Text>
+                </View>
+              </View>
+
+              <Pressable
+                onPress={() => setMoveReminderModalVisible(false)}
+                hitSlop={10}
+              >
+                <Text style={styles.reminderCloseText}>Kapat</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.reminderStatusBox}>
+              <Text style={styles.reminderStatusText}>
+                Hatırlatıcı {moveReminderSettings.enabled ? "açık" : "kapalı"}
+              </Text>
+              <View
+                style={[
+                  styles.reminderStatusDot,
+                  moveReminderSettings.enabled
+                    ? styles.reminderStatusDotActive
+                    : null,
+                ]}
+              />
+            </View>
+
+            <View style={styles.reminderFormCard}>
+              <Text style={styles.reminderSectionLabel}>Seçtiğin saatler</Text>
+
+              {moveReminderTimesInput.length > 0 ? (
+                <View style={styles.moveTimeChipWrap}>
+                  {moveReminderTimesInput.map((time) => (
+                    <Pressable
+                      key={time}
+                      style={styles.moveTimeChip}
+                      onPress={() => handleRemoveMoveReminderTime(time)}
+                    >
+                      <Text style={styles.moveTimeChipText}>{time}</Text>
+                      <Text style={styles.moveTimeChipRemove}>×</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.reminderHelperText}>
+                  Henüz saat eklemedin. Aşağıdan istediğin saati yazıp ekle.
+                </Text>
+              )}
+
+              <View style={styles.moveAddRow}>
+                <View style={styles.moveAddInputWrap}>
+                  <Ionicons name="time-outline" size={18} color="#7A5751" />
+                  <TextInput
+                    value={moveTimeInput}
+                    onChangeText={setMoveTimeInput}
+                    placeholder="15:20"
+                    placeholderTextColor="#B99B95"
+                    keyboardType="numbers-and-punctuation"
+                    maxLength={5}
+                    style={styles.moveTimeInput}
+                  />
+                </View>
+
+                <Pressable
+                  style={styles.moveAddButton}
+                  onPress={handleAddMoveReminderTime}
+                >
+                  <Text style={styles.moveAddButtonText}>Saat ekle</Text>
+                </Pressable>
+              </View>
+
+              <Text style={styles.reminderHelperText}>
+                İstediğin saati kendin ekleyebilirsin. Günde birden fazla
+                hatırlatma seçebilirsin.
+              </Text>
+            </View>
+
+            <Pressable
+              style={styles.reminderPrimaryButton}
+              onPress={handleSaveMoveReminderSettings}
+            >
+              <Text style={styles.reminderPrimaryButtonText}>Kaydet</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.reminderSecondaryButton}
+              onPress={handleDisableMoveReminder}
+            >
+              <Text style={styles.reminderSecondaryButtonText}>
+                Hatırlatıcıyı kapat
+              </Text>
+            </Pressable>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Logo */}
               <View pointerEvents="none" style={styles.decorLayer}>
@@ -1172,13 +2301,39 @@ const handleHomeSearchSubmit = () => {
           <Text style={styles.greeting}>Merhaba {name} 🌸</Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.profilePill}
-          onPress={() => router.push("/profile")}
-        >
-          <Ionicons name="person-outline" size={16} color="#7A5751" />
-          <Text style={styles.profilePillText}>Profil</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActionsColumn}>
+          <TouchableOpacity
+            style={styles.profilePill}
+            onPress={() => {
+              void trackEvent({
+                event_name: "feature_used",
+                screen_name: "home",
+                feature_name: "profile_click",
+              });
+
+              router.push("/profile");
+            }}
+          >
+            <Ionicons name="person-outline" size={16} color="#7A5751" />
+            <Text style={styles.profilePillText}>Profil</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.announcementBellButton}
+            onPress={handleOpenAnnouncements}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="notifications-outline" size={20} color="#7A5751" />
+
+            {unreadAnnouncementCount > 0 ? (
+              <View style={styles.announcementCountBadge}>
+                <Text style={styles.announcementCountText}>
+                  {unreadAnnouncementCount > 9 ? "9+" : unreadAnnouncementCount}
+                </Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Günün motivasyon cümlesi */}
@@ -1201,7 +2356,7 @@ const handleHomeSearchSubmit = () => {
 
               <TouchableOpacity
                 style={styles.periodButton}
-                onPress={() => router.push("/period")}
+                onPress={() => handlePeriodPress("cycle_card")}
               >
                 <Text style={styles.periodButtonText}>Regl takvimini aç</Text>
               </TouchableOpacity>
@@ -1236,7 +2391,7 @@ const handleHomeSearchSubmit = () => {
 
           <TouchableOpacity
             style={styles.periodButton}
-            onPress={() => router.push("/period")}
+            onPress={() => handlePeriodPress("cycle_empty")}
           >
             <Text style={styles.periodButtonText}>Regl takvimini oluştur</Text>
           </TouchableOpacity>
@@ -1309,7 +2464,7 @@ const handleHomeSearchSubmit = () => {
       {/* Nefes & Meditasyon kartı */}
       <TouchableOpacity
         style={styles.meditationCard}
-        onPress={() => router.push("/practices")}
+        onPress={handlePracticesPress}
         activeOpacity={0.9}
       >
         <View style={styles.meditationTextWrap}>
@@ -1391,7 +2546,7 @@ const handleHomeSearchSubmit = () => {
           {/* 🔥 Kalori hesaplama butonu */}
           <TouchableOpacity
             style={styles.featuredCalorieCard}
-            onPress={() => router.push("/calorie")}
+            onPress={handleCaloriePress}
             activeOpacity={0.92}
           >
             <Image
@@ -1438,19 +2593,7 @@ const handleHomeSearchSubmit = () => {
     <View key={article.id} style={styles.latestArticleCard}>
       <Pressable
         style={styles.latestArticlePressable}
-        onPress={() =>
-          router.push({
-            pathname: article.slug
-              ? `/article/${article.slug}`
-              : `/article/${article.id}`,
-            params: {
-              articleId: article.id,
-              initialTitle: article.title,
-              initialSummary: article.summary,
-              initialCoverUrl: article.coverUrl ?? "",
-            },
-          })
-        }
+        onPress={() => handleLatestArticlePress(article)}
       >
         {fallbackImage ? (
           <Image
@@ -1504,7 +2647,7 @@ const handleHomeSearchSubmit = () => {
           {/* Dizi / Film - yazı solda */}
           <TouchableOpacity
             style={styles.weeklyHomeCard}
-            onPress={() => router.push("/weekly/movie")}
+            onPress={() => handleWeeklyPress("movie")}
             activeOpacity={0.9}
           >
             <Image
@@ -1533,7 +2676,7 @@ const handleHomeSearchSubmit = () => {
           {/* Müzik - yazı sağda */}
           <TouchableOpacity
             style={styles.weeklyHomeCard}
-            onPress={() => router.push("/weekly/music")}
+            onPress={() => handleWeeklyPress("music")}
             activeOpacity={0.9}
         >
             <Image
@@ -1565,7 +2708,7 @@ const handleHomeSearchSubmit = () => {
         {/* Kitap - yazı solda */}
         <TouchableOpacity
           style={styles.weeklyHomeCard}
-          onPress={() => router.push("/weekly/book")}
+          onPress={() => handleWeeklyPress("book")}
           activeOpacity={0.9}
         >
           <Image
@@ -1959,6 +3102,233 @@ appLogoCropImage: {
     fontSize: 15,
     fontWeight: "600",
     color: "#6F5A56",
+  },
+
+
+  headerActionsColumn: {
+    alignItems: "flex-end",
+    gap: 8,
+  },
+
+  announcementBellButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D9CDC8",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+
+  announcementCountBadge: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    backgroundColor: "#D77878",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#FFF8F7",
+  },
+
+  announcementCountText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+
+  announcementOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(47, 38, 38, 0.42)",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+
+  announcementModalCard: {
+    maxHeight: "78%",
+    borderRadius: 26,
+    backgroundColor: "#FFFDFC",
+    borderWidth: 1,
+    borderColor: "#F2DFDA",
+    padding: 18,
+    shadowColor: "#000000",
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+
+  announcementHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 14,
+    gap: 12,
+  },
+
+  announcementEyebrow: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#B0756F",
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+
+  announcementModalTitle: {
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "800",
+    color: "#2F2626",
+  },
+
+  announcementCloseButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#FFF3F0",
+  },
+
+  announcementCloseText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#B75F61",
+  },
+
+  announcementEmptyCard: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 28,
+    paddingHorizontal: 16,
+    borderRadius: 18,
+    backgroundColor: "#FFF8F7",
+    borderWidth: 1,
+    borderColor: "#F2DFDA",
+  },
+
+  announcementEmptyTitle: {
+    marginTop: 10,
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#2F2626",
+    textAlign: "center",
+  },
+
+  announcementEmptyText: {
+    marginTop: 6,
+    fontSize: 14,
+    lineHeight: 21,
+    color: "#6D5854",
+    textAlign: "center",
+  },
+
+  announcementList: {
+    maxHeight: 430,
+  },
+
+  announcementListContent: {
+    paddingBottom: 2,
+    gap: 12,
+  },
+
+  announcementCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#F0D6D0",
+    backgroundColor: "#FFF8F7",
+    padding: 14,
+  },
+
+  announcementCardRead: {
+    backgroundColor: "#FFFFFF",
+    opacity: 0.82,
+  },
+
+  announcementCardTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    gap: 10,
+  },
+
+  announcementDate: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#B0756F",
+  },
+
+  announcementNewBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "#D77878",
+  },
+
+  announcementNewBadgeText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+
+  announcementReadLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#8B7772",
+  },
+
+  announcementTitle: {
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "800",
+    color: "#2F2626",
+    marginBottom: 7,
+  },
+
+  announcementBody: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: "#5A4744",
+  },
+
+  announcementActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 12,
+  },
+
+  announcementPrimaryAction: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: "#D77878",
+  },
+
+  announcementPrimaryActionText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
+  announcementDeleteAction: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E7D6D2",
+  },
+
+  announcementDeleteActionText: {
+    color: "#7A615D",
+    fontSize: 13,
+    fontWeight: "800",
   },
 
   motivationCard: {
@@ -2826,4 +4196,314 @@ weeklyHomeTeaser: {
 weeklyHomeArrowMusic: {
   backgroundColor: "rgba(217,94,114,0.92)",
 },
+
+  reminderOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(47, 38, 38, 0.42)",
+  },
+
+  reminderKeyboardScrollContent: {
+    flexGrow: 1,
+    justifyContent: "flex-end",
+  },
+
+  reminderModalCard: {
+    maxHeight: "88%",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    backgroundColor: "#FFFDFB",
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 22,
+    borderWidth: 1,
+    borderColor: "#F2DFDA",
+  },
+
+  reminderModalHandle: {
+    width: 42,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: "#D8C7C2",
+    alignSelf: "center",
+    marginBottom: 14,
+  },
+
+  reminderModalHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 14,
+  },
+
+  reminderTitleRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+
+  reminderEmoji: {
+    fontSize: 28,
+    marginTop: 2,
+  },
+
+  reminderModalTitle: {
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: "900",
+    color: "#2F2626",
+  },
+
+  reminderModalSubtitle: {
+    marginTop: 5,
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#6B5753",
+  },
+
+  reminderCloseText: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#B65E70",
+  },
+
+  reminderStatusBox: {
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#F0DAD6",
+    backgroundColor: "#FFF8F6",
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+
+  reminderStatusText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#5A4744",
+  },
+
+  reminderStatusDot: {
+    width: 38,
+    height: 22,
+    borderRadius: 999,
+    backgroundColor: "#D8C7C2",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+
+  reminderStatusDotActive: {
+    backgroundColor: "#CE6B7C",
+  },
+
+  reminderFormCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#F0DAD6",
+    backgroundColor: "#FFFFFF",
+    padding: 12,
+    marginBottom: 14,
+  },
+
+  reminderInputRow: {
+    minHeight: 52,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F5E8E5",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+
+  reminderInputRowLast: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+
+  reminderInputLabelRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  reminderInputLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#4A2E2A",
+  },
+
+  reminderTimeInput: {
+    minWidth: 82,
+    height: 38,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5D4CF",
+    paddingHorizontal: 10,
+    textAlign: "center",
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#2F2626",
+    backgroundColor: "#FFFDFB",
+  },
+
+  reminderHelperText: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#7A615D",
+  },
+
+  reminderChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+
+  reminderChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+    backgroundColor: "#FFF8F6",
+    borderWidth: 1,
+    borderColor: "#EAD7D2",
+  },
+
+  reminderChipSelected: {
+    backgroundColor: "#CE6B7C",
+    borderColor: "#CE6B7C",
+  },
+
+  reminderChipText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#5A4744",
+  },
+
+  reminderChipTextSelected: {
+    color: "#FFFFFF",
+  },
+
+  reminderPrimaryButton: {
+    minHeight: 50,
+    borderRadius: 14,
+    backgroundColor: "#CE6B7C",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+
+  reminderPrimaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+
+  reminderSecondaryButton: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E2B5B5",
+    backgroundColor: "#FFFDFB",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+  },
+
+  reminderSecondaryButtonText: {
+    color: "#B65E70",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+
+  reminderSectionLabel: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#4A2E2A",
+    marginBottom: 10,
+  },
+
+  moveTimeChipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
+  },
+
+  moveTimeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: "#F5D9DD",
+  },
+
+  moveTimeChipText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#6B3E46",
+  },
+
+  moveTimeChipRemove: {
+    fontSize: 18,
+    lineHeight: 18,
+    fontWeight: "800",
+    color: "#8B5660",
+  },
+
+  moveAddRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  moveAddInputWrap: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "#E5D4CF",
+    backgroundColor: "#FFFDFB",
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  moveTimeInput: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#2F2626",
+    paddingVertical: 0,
+  },
+
+  moveAddButton: {
+    minHeight: 46,
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    backgroundColor: "#FFF1F4",
+    borderWidth: 1,
+    borderColor: "#E9B3BF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  moveAddButtonText: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#B65E70",
+  },
+
 });

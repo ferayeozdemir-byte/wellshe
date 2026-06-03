@@ -4,7 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Notifications from "expo-notifications";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Image,
@@ -16,6 +16,8 @@ import {
   View,
 } from "react-native";
 
+import { trackEvent } from "@/lib/analytics";
+import { useTrackScreenDuration } from "@/lib/useTrackScreenDuration";
 import { sbGetMany } from "../../lib/supabase";
 
 const CATEGORY_CACHE_KEY_PREFIX = "wellshe_category_cache_"; // (şimdilik kullanılmıyor ama dursun)
@@ -168,29 +170,22 @@ export default function CategoryScreen() {
 
   const loadingRemote = loadingInitial || loadingMore;
 
-  // ⭐ id yoksa
-  if (!id) {
-    return (
-      <View style={styles.center}>
-        <Text>Kategori bulunamadı.</Text>
-      </View>
-    );
-  }
+  const isValidCategory =
+    !!id && Object.prototype.hasOwnProperty.call(categoryLabels, id);
 
-  const isValidCategory = Object.prototype.hasOwnProperty.call(
-    categoryLabels,
-    id
+  const title = id && isValidCategory ? categoryLabels[id] : "Kategori";
+
+  const dbCategoryId =
+    id && isValidCategory ? categoryIdToDbId[id] ?? id : null;
+
+  const analyticsMeta = useMemo(
+    () => ({
+      category_id: id ?? "unknown",
+      category_db_id: dbCategoryId ?? "unknown",
+      category_title: title,
+    }),
+    [dbCategoryId, id, title]
   );
-
-  if (!isValidCategory) {
-    return (
-      <View style={styles.center}>
-        <Text>Bu sayfa bulunamadı.</Text>
-      </View>
-    );
-  }
-
-  const title = categoryLabels[id] ?? "Kategori";
 
   // ✅ Favoriler yükle
   useEffect(() => {
@@ -228,104 +223,188 @@ export default function CategoryScreen() {
   const isFavorite = (articleId: string) => favoriteIds.includes(articleId);
 
   // 🔹 Supabase’ten sayfa sayfa veri çeken fonksiyon
-  async function fetchPage(options: { reset: boolean }) {
-    const { reset } = options;
-    const dbCategoryId = categoryIdToDbId[id] ?? id;
+  const fetchPage = useCallback(
+    async (options: { reset: boolean }) => {
+      if (!id || !isValidCategory || !dbCategoryId) return;
 
-    const limit = reset ? INITIAL_LIMIT : LOAD_MORE_LIMIT;
-    const currentOffset = reset ? 0 : offset;
+      const { reset } = options;
 
-    console.log("[Category] fetchPage START", {
-      id,
-      dbCategoryId,
-      reset,
-      limit,
-      offset: currentOffset,
-      at: new Date().toISOString(),
-    });
+      const limit = reset ? INITIAL_LIMIT : LOAD_MORE_LIMIT;
+      const currentOffset = reset ? 0 : offset;
 
-    try {
-      if (reset) {
-        setLoadingInitial(true);
-        setHasMore(true);
-      } else {
-        if (loadingMore) return; // çifte tıklamaya karşı koruma
-        setLoadingMore(true);
-      }
-
-      const path =
-        `/article_translations` +
-        `?select=article_id,lang,title,summary,slug,created_at,` +
-        `articles!inner(id,category_id,status,created_at,cover_asset_id,assets(bucket,path))` +
-        `&lang=eq.tr` +
-        `&articles.status=eq.published` +
-        `&articles.category_id=eq.${enc(dbCategoryId)}` +
-        `&order=created_at.desc` +
-        `&limit=${limit}` +
-        `&offset=${currentOffset}`;
-
-      console.log("[Category] supabase query START", {
-        path,
-        at: new Date().toISOString(),
-      });
-
-      const rows = await sbGetMany<RemoteItem>(path);
-      const safeRows = rows ?? [];
-
-      console.log("[Category] supabase query END", {
-        count: safeRows.length,
-        at: new Date().toISOString(),
-      });
-
-      if (reset) {
-        setItems(safeRows);
-        setOffset(safeRows.length);
-      } else {
-        setItems((prev) => [...prev, ...safeRows]);
-        setOffset((prev) => prev + safeRows.length);
-      }
-
-      // gelen kayıt sayısı limit'ten küçükse devamı yoktur
-      setHasMore(safeRows.length === limit);
-    } catch (e: any) {
-      console.log("Supabase kategori içerik hatası:", e?.message ?? e);
-      if (reset) {
-        setItems([]);
-        setOffset(0);
-        setHasMore(false);
-      }
-    } finally {
-      if (reset) {
-        setLoadingInitial(false);
-      } else {
-        setLoadingMore(false);
-      }
-      console.log("[Category] fetchPage END", {
+      console.log("[Category] fetchPage START", {
+        id,
+        dbCategoryId,
         reset,
+        limit,
+        offset: currentOffset,
         at: new Date().toISOString(),
       });
-    }
-  }
+
+      try {
+        if (reset) {
+          setLoadingInitial(true);
+          setHasMore(true);
+        } else {
+          if (loadingMore) return; // çifte tıklamaya karşı koruma
+          setLoadingMore(true);
+        }
+
+        const path =
+          `/article_translations` +
+          `?select=article_id,lang,title,summary,slug,created_at,` +
+          `articles!inner(id,category_id,status,created_at,cover_asset_id,assets(bucket,path))` +
+          `&lang=eq.tr` +
+          `&articles.status=eq.published` +
+          `&articles.category_id=eq.${enc(dbCategoryId)}` +
+          `&order=created_at.desc` +
+          `&limit=${limit}` +
+          `&offset=${currentOffset}`;
+
+        console.log("[Category] supabase query START", {
+          path,
+          at: new Date().toISOString(),
+        });
+
+        const rows = await sbGetMany<RemoteItem>(path);
+        const safeRows = rows ?? [];
+
+        console.log("[Category] supabase query END", {
+          count: safeRows.length,
+          at: new Date().toISOString(),
+        });
+
+        if (reset) {
+          setItems(safeRows);
+          setOffset(safeRows.length);
+        } else {
+          setItems((prev) => [...prev, ...safeRows]);
+          setOffset((prev) => prev + safeRows.length);
+        }
+
+        // gelen kayıt sayısı limit'ten küçükse devamı yoktur
+        setHasMore(safeRows.length === limit);
+      } catch (e: any) {
+        console.log("Supabase kategori içerik hatası:", e?.message ?? e);
+        if (reset) {
+          setItems([]);
+          setOffset(0);
+          setHasMore(false);
+        }
+      } finally {
+        if (reset) {
+          setLoadingInitial(false);
+        } else {
+          setLoadingMore(false);
+        }
+        console.log("[Category] fetchPage END", {
+          reset,
+          at: new Date().toISOString(),
+        });
+      }
+    },
+    [dbCategoryId, id, isValidCategory, loadingMore, offset]
+  );
 
   // ✅ İlk giriş: sadece son 5 içerik
   useEffect(() => {
+    if (!id || !isValidCategory) return;
+
     console.log("[Category] mount -> fetchPage(reset=true)", {
       id,
       at: new Date().toISOString(),
     });
-    fetchPage({ reset: true });
-  }, [id]);
+
+    void fetchPage({ reset: true });
+  }, [id, isValidCategory, fetchPage]);
 
   // ✅ Ekrana her geri dönüşte: yine son 5’i taze çek (en güncel liste için)
   useFocusEffect(
     useCallback(() => {
+      if (!id || !isValidCategory) return;
+
+      void trackEvent({
+        event_name: "screen_view",
+        screen_name: "category",
+        meta: analyticsMeta,
+      });
+
       console.log("[Category] focus -> fetchPage(reset=true)", {
         id,
         at: new Date().toISOString(),
       });
-      fetchPage({ reset: true });
-    }, [id])
+
+      void fetchPage({ reset: true });
+    }, [analyticsMeta, id, isValidCategory, fetchPage])
   );
+
+  useTrackScreenDuration({
+    screen_name: isValidCategory ? "category" : "category_invalid",
+    meta: analyticsMeta,
+  });
+
+  const handleArticlePress = useCallback(
+    (item: RemoteItem, imageUrl: string | null) => {
+      void trackEvent({
+        event_name: "feature_used",
+        screen_name: "category",
+        feature_name: "category_article_click",
+        article_id: item.article_id,
+        article_title: item.title,
+        meta: {
+          ...analyticsMeta,
+          article_slug: item.slug ?? "",
+          has_cover: Boolean(imageUrl),
+        },
+      });
+
+      router.push({
+        pathname: item.slug
+          ? `/article/${item.slug}`
+          : `/article/${item.article_id}`,
+        params: {
+          articleId: item.article_id,
+          initialTitle: item.title ?? "",
+          initialSummary: item.summary ?? "",
+          initialCoverUrl: imageUrl ?? "",
+        },
+      });
+    },
+    [analyticsMeta, router]
+  );
+
+  const handleLoadMore = useCallback(() => {
+    if (!loadingMore && hasMore) {
+      void trackEvent({
+        event_name: "feature_used",
+        screen_name: "category",
+        feature_name: "category_load_more_click",
+        meta: {
+          ...analyticsMeta,
+          current_offset: offset,
+          loaded_count: items.length,
+        },
+      });
+
+      void fetchPage({ reset: false });
+    }
+  }, [analyticsMeta, fetchPage, hasMore, items.length, loadingMore, offset]);
+
+  if (!id) {
+    return (
+      <View style={styles.center}>
+        <Text>Kategori bulunamadı.</Text>
+      </View>
+    );
+  }
+
+  if (!isValidCategory) {
+    return (
+      <View style={styles.center}>
+        <Text>Bu sayfa bulunamadı.</Text>
+      </View>
+    );
+  }
 
   const emptyState = !loadingRemote && items.length === 0;
 
@@ -438,19 +517,7 @@ export default function CategoryScreen() {
             <View key={item.article_id} style={styles.articleCard}>
               <Pressable
                 style={{ flex: 1 }}
-                onPress={() =>
-                  router.push({
-                    pathname: item.slug
-                      ? `/article/${item.slug}`
-                      : `/article/${item.article_id}`,
-                    params: {
-                      articleId: item.article_id,
-                      initialTitle: item.title ?? "",
-                      initialSummary: item.summary ?? "",
-                      initialCoverUrl: imageUrl ?? "",
-                    },
-                  })
-                }
+                onPress={() => handleArticlePress(item, imageUrl)}
               >
                 {imageUrl ? (
                   <Image
@@ -479,11 +546,7 @@ export default function CategoryScreen() {
         {hasMore && !loadingInitial && (
           <View style={styles.loadMoreBox}>
             <Pressable
-              onPress={() => {
-                if (!loadingMore && hasMore) {
-                  fetchPage({ reset: false });
-                }
-              }}
+              onPress={handleLoadMore}
               style={styles.loadMoreButton}
             >
               <Text style={styles.loadMoreText}>

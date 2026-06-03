@@ -1,7 +1,17 @@
+// app/practices/player/[id].tsx
+
+import { trackEvent } from "@/lib/analytics";
+import { useTrackScreenDuration } from "@/lib/useTrackScreenDuration";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,8 +24,9 @@ import {
   Text,
   View,
 } from "react-native";
+import AdBanner from "../../../components/AdBanner";
 
-import { publicStorageUrl, sbGetMany } from "../../../lib/supabase";
+import { resolveAssetUrl, sbGetMany } from "../../../lib/supabase";
 
 const meditationPlayerBg = require("../../../assets/images/practices/player-meditation-bg.png");
 const breathPlayerBg = require("../../../assets/images/practices/player-breath-bg.png");
@@ -41,6 +52,9 @@ type PracticeRow = {
     bucket: string | null;
     path: string | null;
     content_type: string | null;
+    storage_provider?: string | null;
+    storage_key?: string | null;
+    public_url?: string | null;
   } | null;
 };
 
@@ -95,6 +109,14 @@ function formatShortSeconds(ms: number) {
   return `${totalSeconds} sn`;
 }
 
+function PracticePlayerBannerAd() {
+  return (
+    <View style={styles.adContainer}>
+      <AdBanner />
+    </View>
+  );
+}
+
 export default function PracticePlayerScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; kind?: string }>();
@@ -104,7 +126,23 @@ export default function PracticePlayerScreen() {
     params.kind === "breath" ? "breath" : "meditation";
 
   const soundRef = useRef<Audio.Sound | null>(null);
+  const soundLoadingRef = useRef<Promise<Audio.Sound | null> | null>(null);
+  const activeAudioUrlRef = useRef<string | null>(null);
   const isSeekingRef = useRef(false);
+
+  const practiceRef = useRef<PracticeRow | null>(null);
+  const idRef = useRef<string | null>(id ?? null);
+  const kindRef = useRef<PracticeKind>(initialKind);
+
+  const didTrackPlayerOpenRef = useRef(false);
+  const sessionStartedAtRef = useRef(Date.now());
+  const listenedMsRef = useRef(0);
+  const playStartedAtRef = useRef<number | null>(null);
+  const completedRef = useRef(false);
+  const sessionEndSentRef = useRef(false);
+
+  const durationMsRef = useRef(1);
+  const positionMsRef = useRef(0);
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -138,6 +176,151 @@ export default function PracticePlayerScreen() {
 
   const remainingMs = Math.max(durationMs - shownPosition, 0);
 
+  const durationTrackingMeta = useMemo(
+    () => ({
+      kind: resolvedKind,
+      practice_id: id ?? "",
+      practice_title: practice?.title ?? "",
+      technique_title: practice?.technique_title ?? "",
+      default_duration_seconds: practice?.default_duration_seconds ?? 0,
+    }),
+    [
+      id,
+      resolvedKind,
+      practice?.title,
+      practice?.technique_title,
+      practice?.default_duration_seconds,
+    ]
+  );
+
+  useTrackScreenDuration({
+    screen_name: "practice_player",
+    feature_name: "practice_player_duration",
+    article_id: id ?? null,
+    article_title: practice?.title ?? null,
+    meta: durationTrackingMeta,
+  });
+
+  useEffect(() => {
+    idRef.current = id ?? null;
+    kindRef.current = resolvedKind;
+  }, [id, resolvedKind]);
+
+  useEffect(() => {
+    practiceRef.current = practice;
+  }, [practice]);
+
+  useEffect(() => {
+    durationMsRef.current = durationMs;
+  }, [durationMs]);
+
+  useEffect(() => {
+    positionMsRef.current = positionMs;
+  }, [positionMs]);
+
+  useEffect(() => {
+    didTrackPlayerOpenRef.current = false;
+    sessionStartedAtRef.current = Date.now();
+    listenedMsRef.current = 0;
+    playStartedAtRef.current = null;
+    completedRef.current = false;
+    sessionEndSentRef.current = false;
+    positionMsRef.current = 0;
+  }, [id]);
+
+  const updateListeningTime = useCallback(() => {
+    const startedAt = playStartedAtRef.current;
+    if (!startedAt) return;
+
+    listenedMsRef.current += Math.max(0, Date.now() - startedAt);
+    playStartedAtRef.current = null;
+  }, []);
+
+  const getProgressPercent = useCallback(() => {
+    const total = Math.max(durationMsRef.current, 1);
+    return Math.round(clamp(positionMsRef.current / total, 0, 1) * 100);
+  }, []);
+
+  const buildTrackingMeta = useCallback(
+    (extra?: Record<string, unknown>) => {
+      const currentPractice = practiceRef.current;
+      const currentDurationMs = Math.max(durationMsRef.current, 1);
+      const currentPositionMs = Math.max(positionMsRef.current, 0);
+      const activeListeningMs = playStartedAtRef.current
+        ? Math.max(0, Date.now() - playStartedAtRef.current)
+        : 0;
+
+      return {
+        kind: currentPractice?.kind ?? kindRef.current,
+        practice_id: currentPractice?.id ?? idRef.current ?? "",
+        practice_title: currentPractice?.title ?? "",
+        technique_title: currentPractice?.technique_title ?? "",
+        default_duration_seconds:
+          currentPractice?.default_duration_seconds ?? 0,
+        duration_seconds: Math.round(currentDurationMs / 1000),
+        position_seconds: Math.round(currentPositionMs / 1000),
+        listened_seconds: Math.round(
+          (listenedMsRef.current + activeListeningMs) / 1000
+        ),
+        progress_percent: getProgressPercent(),
+        has_audio: !!activeAudioUrlRef.current,
+        ...(extra ?? {}),
+      };
+    },
+    [getProgressPercent]
+  );
+
+  const trackPracticeFeature = useCallback(
+    (featureName: string, extra?: Record<string, unknown>) => {
+      const currentPractice = practiceRef.current;
+
+      void trackEvent({
+        event_name: "feature_used",
+        screen_name: "practice_player",
+        feature_name: featureName,
+        article_id: currentPractice?.id ?? idRef.current ?? null,
+        article_title: currentPractice?.title ?? null,
+        meta: buildTrackingMeta(extra),
+      });
+    },
+    [buildTrackingMeta]
+  );
+
+  useEffect(() => {
+    if (!practice || didTrackPlayerOpenRef.current) return;
+
+    didTrackPlayerOpenRef.current = true;
+
+    void trackEvent({
+      event_name: "screen_view",
+      screen_name: "practice_player",
+      feature_name: "practice_player_open",
+      article_id: practice.id,
+      article_title: practice.title ?? null,
+      meta: buildTrackingMeta({
+        kind: practice.kind,
+        practice_id: practice.id,
+        practice_title: practice.title ?? "",
+        technique_title: practice.technique_title ?? "",
+        has_audio: !!audioUrl,
+      }),
+    });
+  }, [practice, audioUrl, buildTrackingMeta]);
+
+  useEffect(() => {
+    return () => {
+      updateListeningTime();
+
+      if (!sessionEndSentRef.current) {
+        sessionEndSentRef.current = true;
+
+        trackPracticeFeature("practice_session_end", {
+          exit_reason: completedRef.current ? "completed" : "unmount",
+        });
+      }
+    };
+  }, [trackPracticeFeature, updateListeningTime]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -156,7 +339,7 @@ export default function PracticePlayerScreen() {
           `/breathing_practices` +
             `?select=` +
             `id,status,kind,title,technique_title,summary,cover_asset_id,audio_asset_id,default_duration_seconds,sort_order,accent_color,is_featured,slug,` +
-            `audio_asset:assets!breathing_practices_audio_asset_id_fkey(bucket,path,content_type)` +
+            `audio_asset:assets!breathing_practices_audio_asset_id_fkey(bucket,path,content_type,storage_provider,storage_key,public_url)` +
             `&id=eq.${encodeURIComponent(id)}` +
             `&limit=1`
         );
@@ -164,13 +347,7 @@ export default function PracticePlayerScreen() {
         const item = rows?.[0] ?? null;
         if (!item) throw new Error("Pratik bulunamadı.");
 
-        let resolvedAudioUrl: string | null = null;
-        if (item.audio_asset?.bucket && item.audio_asset?.path) {
-          resolvedAudioUrl = publicStorageUrl(
-            item.audio_asset.bucket,
-            item.audio_asset.path
-          );
-        }
+        const resolvedAudioUrl = resolveAssetUrl(item.audio_asset);
 
         if (!mounted) return;
 
@@ -182,8 +359,12 @@ export default function PracticePlayerScreen() {
           (item.default_duration_seconds || 1) * 1000
         );
 
+        durationMsRef.current = fallbackDuration;
+        positionMsRef.current = 0;
+
         setDurationMs(fallbackDuration);
         setPositionMs(0);
+        setIsPlaying(false);
       } catch (e: any) {
         if (!mounted) return;
         setErr(e?.message || "Pratik yüklenemedi.");
@@ -200,80 +381,49 @@ export default function PracticePlayerScreen() {
   }, [id]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function setupSound() {
-      if (!audioUrl) return;
-
-      try {
-        if (soundRef.current) {
-          await soundRef.current.unloadAsync();
-          soundRef.current = null;
-        }
-
-        const sound = new Audio.Sound();
-
-        await sound.loadAsync(
-          { uri: audioUrl },
-          {
-            shouldPlay: false,
-            progressUpdateIntervalMillis: 250,
-          }
-        );
-
-        sound.setOnPlaybackStatusUpdate((status) => {
-          if (!status.isLoaded) return;
-
-          if (!isSeekingRef.current) {
-            setPositionMs(status.positionMillis ?? 0);
-          }
-
-          if (typeof status.durationMillis === "number") {
-            setDurationMs(status.durationMillis);
-          }
-
-          setIsPlaying(status.isPlaying ?? false);
-
-          if (status.didJustFinish) {
-            setIsPlaying(false);
-            setPositionMs(status.durationMillis ?? 0);
-          }
-        });
-
-        if (!cancelled) {
-          soundRef.current = sound;
-        }
-      } catch (e: any) {
-        if (!cancelled) {
-          setErr(e?.message || "Ses yüklenemedi.");
-        }
-      }
-    }
-
-    void setupSound();
-
-    return () => {
-      cancelled = true;
-      if (soundRef.current) {
-        soundRef.current.unloadAsync().catch(() => {});
-        soundRef.current = null;
-      }
-    };
-  }, [audioUrl]);
-
-  const commitSeek = async (ratio: number) => {
-    const nextRatio = clamp(ratio, 0, 1);
-    const nextMs = Math.round(nextRatio * durationMs);
-
-    setSeekRatio(nextRatio);
-    setPositionMs(nextMs);
+    activeAudioUrlRef.current = audioUrl;
+    soundLoadingRef.current = null;
+    setIsPlaying(false);
+    setPositionMs(0);
+    positionMsRef.current = 0;
+    playStartedAtRef.current = null;
 
     if (soundRef.current) {
-      try {
-        await soundRef.current.setPositionAsync(nextMs);
-      } catch {}
+      const currentSound = soundRef.current;
+      soundRef.current = null;
+      currentSound.unloadAsync().catch(() => {});
     }
-  };
+
+    return () => {
+      activeAudioUrlRef.current = null;
+      soundLoadingRef.current = null;
+      updateListeningTime();
+
+      if (soundRef.current) {
+        const currentSound = soundRef.current;
+        soundRef.current = null;
+        currentSound.unloadAsync().catch(() => {});
+      }
+    };
+  }, [audioUrl, updateListeningTime]);
+
+  const commitSeek = useCallback(
+    async (ratio: number) => {
+      const nextRatio = clamp(ratio, 0, 1);
+      const nextMs = Math.round(nextRatio * durationMs);
+
+      setSeekRatio(nextRatio);
+      setPositionMs(nextMs);
+      positionMsRef.current = nextMs;
+
+      if (soundRef.current) {
+        try {
+          await soundRef.current.setPositionAsync(nextMs);
+        } catch {}
+      }
+    },
+    [durationMs]
+  );
 
   const panResponder = useMemo(
     () =>
@@ -298,6 +448,10 @@ export default function PracticePlayerScreen() {
           setIsSeeking(false);
           isSeekingRef.current = false;
           await commitSeek(finalRatio);
+
+          trackPracticeFeature("practice_seek", {
+            seek_to_percent: Math.round(clamp(finalRatio, 0, 1) * 100),
+          });
         },
 
         onPanResponderTerminate: async () => {
@@ -305,24 +459,162 @@ export default function PracticePlayerScreen() {
           setIsSeeking(false);
           isSeekingRef.current = false;
           await commitSeek(finalRatio);
+
+          trackPracticeFeature("practice_seek", {
+            seek_to_percent: Math.round(clamp(finalRatio, 0, 1) * 100),
+          });
         },
       }),
-    [seekRatio, seekWidth, durationMs]
+    [seekRatio, seekWidth, commitSeek, trackPracticeFeature]
   );
 
-  async function togglePlayPause() {
-    if (!soundRef.current) return;
+  async function ensureSoundLoaded() {
+    if (soundRef.current) {
+      return soundRef.current;
+    }
+
+    if (soundLoadingRef.current) {
+      return soundLoadingRef.current;
+    }
+
+    if (!audioUrl) {
+      Alert.alert("Hata", "Ses dosyası bulunamadı.");
+      return null;
+    }
+
+    const targetAudioUrl = audioUrl;
+
+    const loadingPromise: Promise<Audio.Sound | null> = (async () => {
+      const sound = new Audio.Sound();
+
+      await sound.loadAsync(
+        { uri: targetAudioUrl },
+        {
+          shouldPlay: false,
+          progressUpdateIntervalMillis: 250,
+        }
+      );
+
+      if (activeAudioUrlRef.current !== targetAudioUrl) {
+        await sound.unloadAsync().catch(() => {});
+        return null;
+      }
+
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (!status.isLoaded) return;
+
+        const nextPositionMs = status.positionMillis ?? 0;
+
+        if (!isSeekingRef.current) {
+          positionMsRef.current = nextPositionMs;
+          setPositionMs(nextPositionMs);
+        }
+
+        if (typeof status.durationMillis === "number") {
+          durationMsRef.current = status.durationMillis;
+          setDurationMs(status.durationMillis);
+        }
+
+        if (status.isPlaying) {
+          if (!playStartedAtRef.current) {
+            playStartedAtRef.current = Date.now();
+          }
+        } else {
+          updateListeningTime();
+        }
+
+        setIsPlaying(status.isPlaying ?? false);
+
+        if (status.didJustFinish) {
+          updateListeningTime();
+
+          const finalDurationMs =
+            typeof status.durationMillis === "number"
+              ? status.durationMillis
+              : durationMsRef.current;
+
+          durationMsRef.current = finalDurationMs;
+          positionMsRef.current = finalDurationMs;
+
+          setIsPlaying(false);
+          setPositionMs(finalDurationMs);
+
+          if (!completedRef.current) {
+            completedRef.current = true;
+
+            trackPracticeFeature("practice_audio_complete", {
+              completion_source: "playback_status",
+            });
+
+            if (!sessionEndSentRef.current) {
+              sessionEndSentRef.current = true;
+
+              trackPracticeFeature("practice_session_end", {
+                exit_reason: "completed",
+              });
+            }
+          }
+        }
+      });
+
+      soundRef.current = sound;
+      return sound;
+    })();
+
+    soundLoadingRef.current = loadingPromise;
 
     try {
-      if (isPlaying) {
-        await soundRef.current.pauseAsync();
-      } else {
-        if (positionMs >= durationMs - 250) {
-          await soundRef.current.setPositionAsync(0);
-          setPositionMs(0);
-        }
-        await soundRef.current.playAsync();
+      return await loadingPromise;
+    } finally {
+      if (soundLoadingRef.current === loadingPromise) {
+        soundLoadingRef.current = null;
       }
+    }
+  }
+
+  async function togglePlayPause() {
+    try {
+      const sound = await ensureSoundLoaded();
+      if (!sound) return;
+
+      const status = await sound.getStatusAsync();
+      if (!status.isLoaded) return;
+
+      if (status.isPlaying) {
+        await sound.pauseAsync();
+        updateListeningTime();
+
+        trackPracticeFeature("practice_audio_pause", {
+          pause_source: "main_button",
+        });
+
+        return;
+      }
+
+      const currentDurationMs =
+        typeof status.durationMillis === "number"
+          ? status.durationMillis
+          : durationMs;
+
+      if (positionMs >= currentDurationMs - 250) {
+        await sound.setPositionAsync(0);
+        positionMsRef.current = 0;
+        setPositionMs(0);
+        completedRef.current = false;
+        sessionEndSentRef.current = false;
+      } else if (positionMs > 0) {
+        await sound.setPositionAsync(positionMs);
+      }
+
+      if (!playStartedAtRef.current) {
+        playStartedAtRef.current = Date.now();
+      }
+
+      trackPracticeFeature("practice_audio_play", {
+        play_source: "main_button",
+      });
+
+      await sound.playAsync();
     } catch (e: any) {
       Alert.alert("Hata", e?.message || "Oynatma işlemi başarısız oldu.");
     }
@@ -330,10 +622,16 @@ export default function PracticePlayerScreen() {
 
   async function seekBy(deltaMs: number) {
     const nextMs = clamp(shownPosition + deltaMs, 0, durationMs);
+
     setPositionMs(nextMs);
+    positionMsRef.current = nextMs;
 
     try {
       await soundRef.current?.setPositionAsync(nextMs);
+
+      trackPracticeFeature("practice_seek", {
+        seek_delta_seconds: Math.round(deltaMs / 1000),
+      });
     } catch {}
   }
 
@@ -422,23 +720,11 @@ export default function PracticePlayerScreen() {
           </View>
 
           <View style={styles.content}>
-            <Text style={[styles.mainTitle, { color: theme.title }]}>
-              {practice.title || "Pratik"}
-            </Text>
-
-            {!!practice.technique_title && (
-              <Text style={[styles.techniqueTitle, { color: theme.subtitle }]}>
-                {practice.technique_title}
-              </Text>
-            )}
-
             <View style={styles.heroWrap}>
               <View
                 style={[styles.heroGlow, { backgroundColor: theme.centerGlow }]}
               />
-              <View
-                style={[styles.heroRing, { borderColor: theme.ring }]}
-              />
+              <View style={[styles.heroRing, { borderColor: theme.ring }]} />
               <View
                 style={[styles.heroInner, { backgroundColor: theme.centerBg }]}
               />
@@ -534,6 +820,8 @@ export default function PracticePlayerScreen() {
                 />
               </Pressable>
             </View>
+
+            <PracticePlayerBannerAd />
           </View>
         </View>
       </ImageBackground>
@@ -631,7 +919,7 @@ const styles = StyleSheet.create({
   heroWrap: {
     width: 252,
     height: 252,
-    marginTop: 38,
+    marginTop: 18,
     marginBottom: 8,
     alignItems: "center",
     justifyContent: "center",
@@ -733,7 +1021,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.10,
+    shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 3,
   },
@@ -744,5 +1032,12 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  adContainer: {
+    width: "100%",
+    marginTop: 22,
+    paddingHorizontal: 8,
+    alignItems: "center",
   },
 });

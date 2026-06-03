@@ -1,4 +1,7 @@
 // app/weekly/music.tsx
+
+import { trackEvent } from "@/lib/analytics";
+import { useTrackScreenDuration } from "@/lib/useTrackScreenDuration";
 import { Stack } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -38,6 +41,25 @@ function WeeklyBannerAd() {
 
 export default function WeeklyMusicScreen() {
   const [items, setItems] = useState<WeeklyItem[] | null>(null);
+
+  useEffect(() => {
+    void trackEvent({
+      event_name: "screen_view",
+      screen_name: "weekly_music",
+      feature_name: "weekly_screen_view",
+      meta: {
+        weekly_type: "music",
+      },
+    });
+  }, []);
+
+  useTrackScreenDuration({
+    screen_name: "weekly_music",
+    feature_name: "weekly_duration",
+    meta: {
+      weekly_type: "music",
+    },
+  });
 
   useEffect(() => {
     let isMounted = true;

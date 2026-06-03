@@ -34,7 +34,10 @@
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSUserTrackingUsageDescription": "WellShe, reklam performansını ölçmek ve daha alakalı reklam deneyimi sunmak için cihaz tanımlayıcısını kullanabilir."
+        "NSUserTrackingUsageDescription": "WellShe, reklam performansını ölçmek ve daha alakalı reklam deneyimi sunmak için cihaz tanımlayıcısını kullanabilir.",
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {

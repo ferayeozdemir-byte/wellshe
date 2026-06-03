@@ -1,6 +1,7 @@
 // app/article/[id].tsx
 
 import { trackEvent } from "@/lib/analytics";
+import { useTrackScreenDuration } from "@/lib/useTrackScreenDuration";
 import { Audio } from "expo-av";
 import { Stack, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -19,7 +20,7 @@ import RenderHTML, {
   HTMLContentModel,
   HTMLElementModel,
 } from "react-native-render-html";
-import { publicStorageUrl, sbGetMany } from "../../lib/supabase";
+import { resolveAssetUrl, sbGetMany } from "../../lib/supabase";
 
 // 🔹 AdBanner (web-safe wrapper)
 import AdBanner from "../../components/AdBanner";
@@ -145,6 +146,9 @@ type ArticleWithTrRow = {
       bucket: string | null;
       path: string | null;
       content_type: string | null;
+      storage_provider?: string | null;
+      storage_key?: string | null;
+      public_url?: string | null;
     } | null;
   } | null;
 };
@@ -165,9 +169,12 @@ type TrRow = {
 };
 
 type AssetRow = {
-  bucket: string;
-  path: string;
+  bucket: string | null;
+  path: string | null;
   content_type: string | null;
+  storage_provider?: string | null;
+  storage_key?: string | null;
+  public_url?: string | null;
 };
 
 function enc(v: string) {
@@ -215,12 +222,14 @@ function InlineAudioBlock({
         setLoadingUrl(true);
 
         const rows = await sbGetMany<AssetRow>(
-          `/assets?select=bucket,path,content_type&id=eq.${enc(assetId)}&limit=1`
+          `/assets?select=bucket,path,content_type,storage_provider,storage_key,public_url&id=eq.${enc(assetId)}&limit=1`
         );
 
         const asset = rows?.[0];
-        if (!cancelled && asset?.bucket && asset?.path) {
-          setResolvedUrl(publicStorageUrl(asset.bucket, asset.path));
+        const nextUrl = resolveAssetUrl(asset);
+
+        if (!cancelled) {
+          setResolvedUrl(nextUrl);
         }
       } catch {
         if (!cancelled) setResolvedUrl(null);
@@ -262,20 +271,57 @@ function InlineAudioBlock({
 
           if (status.didJustFinish) {
             setIsPlaying(false);
+
+            void trackEvent({
+              event_name: "feature_used",
+              screen_name: "article",
+              feature_name: "inline_audio_complete",
+              meta: {
+                audio_asset_id: assetId,
+              },
+            });
           }
         });
 
         setSound(newSound);
         setIsPlaying(true);
+
+        void trackEvent({
+          event_name: "feature_used",
+          screen_name: "article",
+          feature_name: "inline_audio_play",
+          meta: {
+            audio_asset_id: assetId,
+          },
+        });
+
         return;
       }
 
       if (isPlaying) {
         await sound.pauseAsync();
         setIsPlaying(false);
+
+        void trackEvent({
+          event_name: "feature_used",
+          screen_name: "article",
+          feature_name: "inline_audio_pause",
+          meta: {
+            audio_asset_id: assetId,
+          },
+        });
       } else {
         await sound.playAsync();
         setIsPlaying(true);
+
+        void trackEvent({
+          event_name: "feature_used",
+          screen_name: "article",
+          feature_name: "inline_audio_play",
+          meta: {
+            audio_asset_id: assetId,
+          },
+        });
       }
     } catch {
       setIsPlaying(false);
@@ -378,8 +424,34 @@ export default function ArticleScreen() {
   const [localHit, setLocalHit] = useState<any | null>(null);
 
   const didTrackContentOpenRef = useRef(false);
+  const didTrackScreenViewRef = useRef(false);
 
   const lang = "tr";
+
+  const trackedArticleId =
+    article?.id ??
+    articleIdParam ??
+    (typeof routeId === "string" ? routeId : null);
+
+  const trackedArticleTitle =
+    tr?.title ??
+    (typeof initialTitle === "string" ? initialTitle : null);
+
+  const contentDurationMeta = useMemo(
+    () => ({
+      category_id: article?.category_id ?? null,
+      content_source: localHit ? "local" : "remote",
+    }),
+    [article?.category_id, localHit]
+  );
+
+  useTrackScreenDuration({
+    screen_name: "article",
+    feature_name: "content_duration",
+    article_id: trackedArticleId ? String(trackedArticleId) : null,
+    article_title: trackedArticleTitle ? String(trackedArticleTitle) : null,
+    meta: contentDurationMeta,
+  });
 
   useEffect(() => {
     return () => {
@@ -407,22 +479,67 @@ export default function ArticleScreen() {
 
           if (status.didJustFinish) {
             setIsPlaying(false);
+
+            void trackEvent({
+              event_name: "feature_used",
+              screen_name: "article",
+              feature_name: "article_audio_complete",
+              article_id: trackedArticleId ? String(trackedArticleId) : null,
+              article_title: trackedArticleTitle ? String(trackedArticleTitle) : null,
+              meta: {
+                category_id: article?.category_id ?? null,
+              },
+            });
           }
         });
 
         setSound(newSound);
         setIsPlaying(true);
+
+        void trackEvent({
+          event_name: "feature_used",
+          screen_name: "article",
+          feature_name: "article_audio_play",
+          article_id: trackedArticleId ? String(trackedArticleId) : null,
+          article_title: trackedArticleTitle ? String(trackedArticleTitle) : null,
+          meta: {
+            category_id: article?.category_id ?? null,
+          },
+        });
+
         return;
       }
 
       if (isPlaying) {
         await sound.pauseAsync();
         setIsPlaying(false);
+
+        void trackEvent({
+          event_name: "feature_used",
+          screen_name: "article",
+          feature_name: "article_audio_pause",
+          article_id: trackedArticleId ? String(trackedArticleId) : null,
+          article_title: trackedArticleTitle ? String(trackedArticleTitle) : null,
+          meta: {
+            category_id: article?.category_id ?? null,
+          },
+        });
       } else {
         await sound.playAsync();
         setIsPlaying(true);
+
+        void trackEvent({
+          event_name: "feature_used",
+          screen_name: "article",
+          feature_name: "article_audio_play",
+          article_id: trackedArticleId ? String(trackedArticleId) : null,
+          article_title: trackedArticleTitle ? String(trackedArticleTitle) : null,
+          meta: {
+            category_id: article?.category_id ?? null,
+          },
+        });
       }
-    } catch (e) {
+    } catch {
       setErr("Ses oynatılamadı. Lütfen tekrar deneyin.");
     } finally {
       setAudioLoading(false);
@@ -558,7 +675,7 @@ export default function ArticleScreen() {
             `article_id,title,summary,content_html,slug,audio_asset_id,` +
             `articles!inner(` +
             `id,status,category_id,cover_asset_id,` +
-            `assets(bucket,path,content_type)` +
+            `assets(bucket,path,content_type,storage_provider,storage_key,public_url)` +
             `)` +
             `&article_id=eq.${enc(articleId)}` +
             `&lang=eq.${lang}` +
@@ -598,8 +715,10 @@ export default function ArticleScreen() {
           setLocalHit(null);
 
           const coverAsset = art.assets as AssetRow | null;
-          if (coverAsset?.bucket && coverAsset?.path) {
-            setCoverUrl(publicStorageUrl(coverAsset.bucket, coverAsset.path));
+          const resolvedCoverUrl = resolveAssetUrl(coverAsset);
+
+          if (resolvedCoverUrl) {
+            setCoverUrl(resolvedCoverUrl);
           } else if (initialCoverUrl) {
             setCoverUrl(initialCoverUrl as string);
           } else {
@@ -613,16 +732,14 @@ export default function ArticleScreen() {
             });
             try {
               const a = await sbGetMany<AssetRow>(
-                `/assets?select=bucket,path,content_type&id=eq.${enc(
+                `/assets?select=bucket,path,content_type,storage_provider,storage_key,public_url&id=eq.${enc(
                   audioId
                 )}&limit=1`
               );
+
               const asset = a?.[0];
-              if (asset?.bucket && asset?.path) {
-                setAudioUrl(publicStorageUrl(asset.bucket, asset.path));
-              } else {
-                setAudioUrl(null);
-              }
+              setAudioUrl(resolveAssetUrl(asset));
+
             } catch {
               setAudioUrl(null);
             }
@@ -658,28 +775,50 @@ export default function ArticleScreen() {
   }, [routeId, articleIdParam, initialTitle, initialSummary, initialCoverUrl]);
 
   useEffect(() => {
-  if (didTrackContentOpenRef.current) return;
+    if (didTrackScreenViewRef.current) return;
+    if (!trackedArticleId && !trackedArticleTitle) return;
 
-  const trackedArticleId =
-    article?.id ??
-    articleIdParam ??
-    (typeof routeId === "string" ? routeId : null);
+    didTrackScreenViewRef.current = true;
 
-  const trackedArticleTitle =
-    tr?.title ??
-    (typeof initialTitle === "string" ? initialTitle : null);
+    void trackEvent({
+      event_name: "screen_view",
+      screen_name: "article",
+      article_id: trackedArticleId ? String(trackedArticleId) : null,
+      article_title: trackedArticleTitle ? String(trackedArticleTitle) : null,
+      meta: {
+        category_id: article?.category_id ?? null,
+        content_source: localHit ? "local" : "remote",
+      },
+    });
+  }, [
+    trackedArticleId,
+    trackedArticleTitle,
+    article?.category_id,
+    localHit,
+  ]);
 
-  if (!trackedArticleId && !trackedArticleTitle) return;
+  useEffect(() => {
+    if (didTrackContentOpenRef.current) return;
+    if (!trackedArticleId && !trackedArticleTitle) return;
 
-  didTrackContentOpenRef.current = true;
+    didTrackContentOpenRef.current = true;
 
-  void trackEvent({
-    event_name: "content_open",
-    screen_name: "article",
-    article_id: trackedArticleId ? String(trackedArticleId) : null,
-    article_title: trackedArticleTitle ? String(trackedArticleTitle) : null,
-  });
-}, [article?.id, tr?.title, articleIdParam, routeId, initialTitle]);
+    void trackEvent({
+      event_name: "content_open",
+      screen_name: "article",
+      article_id: trackedArticleId ? String(trackedArticleId) : null,
+      article_title: trackedArticleTitle ? String(trackedArticleTitle) : null,
+      meta: {
+        category_id: article?.category_id ?? null,
+        content_source: localHit ? "local" : "remote",
+      },
+    });
+  }, [
+    trackedArticleId,
+    trackedArticleTitle,
+    article?.category_id,
+    localHit,
+  ]);
 
   const hasHtml =
   !!tr?.content_html && tr.content_html.trim().length > 0;

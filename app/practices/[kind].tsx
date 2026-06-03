@@ -1,3 +1,7 @@
+// app/practices/[kind].tsx
+
+import { trackEvent } from "@/lib/analytics";
+import { useTrackScreenDuration } from "@/lib/useTrackScreenDuration";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -10,8 +14,17 @@ import {
   Text,
   View,
 } from "react-native";
-import { publicStorageUrl, sbGetMany } from "../../lib/supabase";
+import AdBanner from "../../components/AdBanner";
+import { resolveAssetUrl, sbGetMany } from "../../lib/supabase";
 import SpiritualBackground from "../components/practices/SpiritualBackground";
+
+function PracticeBannerAd() {
+  return (
+    <View style={styles.adContainer}>
+      <AdBanner />
+    </View>
+  );
+}
 
 type PracticeKind = "breath" | "meditation";
 
@@ -36,6 +49,9 @@ type PracticeRow = {
     bucket: string | null;
     path: string | null;
     content_type: string | null;
+    storage_provider?: string | null;
+    storage_key?: string | null;
+    public_url?: string | null;
   } | null;
 };
 
@@ -108,6 +124,25 @@ export default function PracticeListScreen() {
       : "Zihnini sakinleştirmek ve bedenine kısa bir alan açmak için nefes pratiklerini seçebilirsin.";
 
   useEffect(() => {
+    void trackEvent({
+      event_name: "screen_view",
+      screen_name: "practices_list",
+      feature_name: "practice_list_open",
+      meta: {
+        kind,
+      },
+    });
+  }, [kind]);
+
+  useTrackScreenDuration({
+    screen_name: "practices_list",
+    feature_name: "practice_list_duration",
+    meta: {
+      kind,
+    },
+  });
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadPractices() {
@@ -119,7 +154,7 @@ export default function PracticeListScreen() {
           `/breathing_practices` +
             `?select=` +
             `id,status,kind,title,technique_title,summary,cover_asset_id,audio_asset_id,default_duration_seconds,sort_order,accent_color,is_featured,slug,published_at,created_at,updated_at,` +
-            `cover_asset:assets!breathing_practices_cover_asset_id_fkey(bucket,path,content_type)` +
+            `cover_asset:assets!breathing_practices_cover_asset_id_fkey(bucket,path,content_type,storage_provider,storage_key,public_url)` +
             `&status=eq.published` +
             `&kind=eq.${enc(kind)}` +
             `&order=created_at.desc.nullslast`
@@ -145,6 +180,33 @@ export default function PracticeListScreen() {
     };
   }, [kind]);
 
+  const handlePracticePress = (item: PracticeRow) => {
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "practices_list",
+      feature_name: "practice_open",
+      article_id: item.id,
+      article_title: item.title ?? item.technique_title ?? null,
+      meta: {
+        kind: item.kind,
+        practice_id: item.id,
+        practice_title: item.title ?? "",
+        technique_title: item.technique_title ?? "",
+        default_duration_seconds: item.default_duration_seconds ?? 0,
+        is_featured: item.is_featured === true,
+      },
+    });
+
+    router.push({
+      pathname: "/practices/player/[id]",
+      params: {
+        id: item.id,
+        kind: item.kind,
+        title: item.title ?? "",
+      },
+    });
+  };
+
   const backgroundVariant = kind === "breath" ? "breath" : "meditation";
 
   return (
@@ -152,9 +214,10 @@ export default function PracticeListScreen() {
       <Stack.Screen options={{ title: screenTitle }} />
 
       <SafeAreaView style={styles.safeArea}>
-        <SpiritualBackground variant={backgroundVariant} />
+        <View style={styles.page}>
+          <SpiritualBackground variant={backgroundVariant} />
 
-        <ScrollView contentContainerStyle={styles.container}>
+          <ScrollView contentContainerStyle={styles.container}>
           <Text style={styles.eyebrow}>PRATİKLER</Text>
           <Text
             style={[
@@ -167,9 +230,11 @@ export default function PracticeListScreen() {
           <Text
             style={[
               styles.subtitle,
-                kind === "breath" ? styles.subtitleBreath : styles.subtitleMeditation,
+              kind === "breath"
+                ? styles.subtitleBreath
+                : styles.subtitleMeditation,
             ]}
-           >
+          >
             {description}
           </Text>
 
@@ -182,7 +247,9 @@ export default function PracticeListScreen() {
             <View
               style={[
                 styles.emptyCard,
-                kind === "breath" ? styles.emptyCardBreath : styles.emptyCardMeditation,
+                kind === "breath"
+                  ? styles.emptyCardBreath
+                  : styles.emptyCardMeditation,
               ]}
             >
               <Text style={styles.emptyTitle}>Bir sorun oluştu</Text>
@@ -192,7 +259,9 @@ export default function PracticeListScreen() {
             <View
               style={[
                 styles.emptyCard,
-                kind === "breath" ? styles.emptyCardBreath : styles.emptyCardMeditation,
+                kind === "breath"
+                  ? styles.emptyCardBreath
+                  : styles.emptyCardMeditation,
               ]}
             >
               <Text style={styles.emptyTitle}>Henüz içerik yok</Text>
@@ -202,29 +271,19 @@ export default function PracticeListScreen() {
             </View>
           ) : (
             items.map((item) => {
-              const cover =
-                item.cover_asset?.bucket && item.cover_asset?.path
-                  ? publicStorageUrl(item.cover_asset.bucket, item.cover_asset.path)
-                  : null;
+              const cover = resolveAssetUrl(item.cover_asset);
 
               return (
                 <Pressable
                   key={item.id}
                   style={({ pressed }) => [
                     styles.card,
-                    kind === "breath" ? styles.cardBreath : styles.cardMeditation,
+                    kind === "breath"
+                      ? styles.cardBreath
+                      : styles.cardMeditation,
                     pressed ? styles.cardPressed : null,
                   ]}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/practices/player/[id]",
-                      params: {
-                        id: item.id,
-                        kind: item.kind,
-                        title: item.title ?? "",
-                      },
-                    })
-                  }
+                  onPress={() => handlePracticePress(item)}
                 >
                   {cover ? (
                     <Image
@@ -307,7 +366,10 @@ export default function PracticeListScreen() {
               );
             })
           )}
-        </ScrollView>
+          </ScrollView>
+
+          <PracticeBannerAd />
+        </View>
       </SafeAreaView>
     </>
   );
@@ -317,6 +379,10 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: "#FFF8F7",
+  },
+
+  page: {
+    flex: 1,
   },
 
   container: {
@@ -516,29 +582,34 @@ const styles = StyleSheet.create({
   },
 
   emptyCardBreath: {
-  borderColor: "#DCE9D7",
-  backgroundColor: "#FCFFFB",
-},
+    borderColor: "#DCE9D7",
+    backgroundColor: "#FCFFFB",
+  },
 
-emptyCardMeditation: {
-  borderColor: "#E7D9EE",
-  backgroundColor: "#FFFDFE",
-},
+  emptyCardMeditation: {
+    borderColor: "#E7D9EE",
+    backgroundColor: "#FFFDFE",
+  },
 
-titleBreath: {
-  color: "#2F4A34",
-},
+  titleBreath: {
+    color: "#2F4A34",
+  },
 
-titleMeditation: {
-  color: "#3F2F4E",
-},
+  titleMeditation: {
+    color: "#3F2F4E",
+  },
 
-subtitleBreath: {
-  color: "#58705B",
-},
+  subtitleBreath: {
+    color: "#58705B",
+  },
 
-subtitleMeditation: {
-  color: "#5E556A",
-},
+  subtitleMeditation: {
+    color: "#5E556A",
+  },
 
+  adContainer: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+    alignItems: "center",
+  },
 });

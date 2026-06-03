@@ -1,5 +1,6 @@
 // app/components/SponsorSplash.tsx
 
+import { trackEvent } from "@/lib/analytics";
 import React, { useEffect } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
 
@@ -9,7 +10,28 @@ type SponsorSplashProps = {
 
 export default function SponsorSplash({ onDone }: SponsorSplashProps) {
   useEffect(() => {
+    void trackEvent({
+      event_name: "screen_view",
+      screen_name: "sponsor_splash",
+      feature_name: "sponsor_view",
+      meta: {
+        sponsor_name: "Global Solar",
+        placement: "sponsor_splash",
+      },
+    });
+
     const timer = setTimeout(() => {
+      void trackEvent({
+        event_name: "feature_used",
+        screen_name: "sponsor_splash",
+        feature_name: "sponsor_splash_completed",
+        meta: {
+          sponsor_name: "Global Solar",
+          placement: "sponsor_splash",
+          duration_seconds: 2,
+        },
+      });
+
       onDone();
     }, 2000);
 
@@ -37,7 +59,7 @@ export default function SponsorSplash({ onDone }: SponsorSplashProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFF7F3", // istersen #FFFFFF yapabiliriz
+    backgroundColor: "#FFF7F3",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 28,

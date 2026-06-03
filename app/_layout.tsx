@@ -12,9 +12,10 @@ import "react-native-url-polyfill/auto";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { trackEvent } from "@/lib/analytics";
+import { configureAppAudioMode } from "@/lib/audioMode";
 
 Sentry.init({
-  dsn: 'https://b9b25e0d18f0a763b6e541c9926b981f@o4510652162310144.ingest.de.sentry.io/4510652201238608',
+  dsn: "https://b9b25e0d18f0a763b6e541c9926b981f@o4510652162310144.ingest.de.sentry.io/4510652201238608",
   sendDefaultPii: true,
   enableLogs: true,
 });
@@ -45,13 +46,15 @@ export default Sentry.wrap(function RootLayout() {
   const colorScheme = useColorScheme();
 
   useEffect(() => {
-  void initMetaSdk();
+    void configureAppAudioMode();
 
-  void trackEvent({
-    event_name: "app_open",
-    screen_name: "root",
-  });
-}, []);
+    void initMetaSdk();
+
+    void trackEvent({
+      event_name: "app_open",
+      screen_name: "root",
+    });
+  }, []);
 
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>

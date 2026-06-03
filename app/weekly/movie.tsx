@@ -1,7 +1,10 @@
 // app/weekly/movie.tsx
+
+import { trackEvent } from "@/lib/analytics";
+import { useTrackScreenDuration } from "@/lib/useTrackScreenDuration";
 import { useFocusEffect } from "@react-navigation/native";
 import { Stack } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   SafeAreaView,
@@ -45,6 +48,25 @@ function WeeklyBannerAd() {
 export default function WeeklyMovieScreen() {
   const [items, setItems] = useState<WeeklyItem[] | null>(null);
 
+  useEffect(() => {
+    void trackEvent({
+      event_name: "screen_view",
+      screen_name: "weekly_movie",
+      feature_name: "weekly_screen_view",
+      meta: {
+        weekly_type: "movie",
+      },
+    });
+  }, []);
+
+  useTrackScreenDuration({
+    screen_name: "weekly_movie",
+    feature_name: "weekly_duration",
+    meta: {
+      weekly_type: "movie",
+    },
+  });
+
   // ✅ Ekrana her dönüşte yeniden çek
   useFocusEffect(
     useCallback(() => {
@@ -59,7 +81,7 @@ export default function WeeklyMovieScreen() {
 
           if (remote.length > 0) setItems(remote);
           else setItems(sortNewestFirst(weeklyArchive.movie));
-        } catch (e) {
+        } catch {
           if (!isMounted) return;
           setItems(sortNewestFirst(weeklyArchive.movie));
         }

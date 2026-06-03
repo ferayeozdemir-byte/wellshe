@@ -85,6 +85,7 @@ function sanitizeMeta(
 export async function trackEvent(params: TrackEventParams): Promise<void> {
   try {
     const install_id = await getInstallId();
+    const cleanMeta = sanitizeMeta(params.meta);
 
     const payload = {
       event_name: params.event_name,
@@ -95,7 +96,10 @@ export async function trackEvent(params: TrackEventParams): Promise<void> {
       article_title: sanitizeText(params.article_title),
       platform: Platform.OS,
       app_version: getAppVersion(),
-      meta: sanitizeMeta(params.meta),
+      meta: {
+        ...(cleanMeta ?? {}),
+        environment: __DEV__ ? "development" : "production",
+      },
     };
 
     await callEdgeFunction("track-event", payload);

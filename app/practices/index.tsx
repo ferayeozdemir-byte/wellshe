@@ -1,27 +1,70 @@
+// app/practices/index.tsx
+
+import { trackEvent } from "@/lib/analytics";
+import { useTrackScreenDuration } from "@/lib/useTrackScreenDuration";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
-import React from "react";
+import React, { useEffect } from "react";
 import {
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
+import AdBanner from "../../components/AdBanner";
 import SpiritualBackground from "../components/practices/SpiritualBackground";
+
+function PracticeBannerAd() {
+  return (
+    <View style={styles.adContainer}>
+      <AdBanner />
+    </View>
+  );
+}
 
 export default function PracticesHomeScreen() {
   const router = useRouter();
+
+  useEffect(() => {
+    void trackEvent({
+      event_name: "screen_view",
+      screen_name: "practices",
+      feature_name: "practice_home_open",
+    });
+  }, []);
+
+  useTrackScreenDuration({
+    screen_name: "practices",
+    feature_name: "practice_home_duration",
+  });
+
+  const handlePracticeKindPress = (kind: "breath" | "meditation") => {
+    void trackEvent({
+      event_name: "feature_used",
+      screen_name: "practices",
+      feature_name: "practice_kind_click",
+      meta: {
+        kind,
+      },
+    });
+
+    router.push({
+      pathname: "/practices/[kind]",
+      params: { kind },
+    });
+  };
 
   return (
     <>
       <Stack.Screen options={{ title: "Pratikler" }} />
 
       <SafeAreaView style={styles.safeArea}>
-        <SpiritualBackground variant="meditation" />
+        <View style={styles.page}>
+          <SpiritualBackground variant="meditation" />
 
-        <ScrollView contentContainerStyle={styles.container}>
+          <ScrollView contentContainerStyle={styles.container}>
           <Text style={styles.eyebrow}>KENDİNE KÜÇÜK BİR ALAN AÇ</Text>
           <Text style={styles.title}>Bugün neye ihtiyacın var?</Text>
           <Text style={styles.subtitle}>
@@ -35,12 +78,7 @@ export default function PracticesHomeScreen() {
               styles.breathCard,
               pressed ? styles.cardPressed : null,
             ]}
-            onPress={() =>
-              router.push({
-                pathname: "/practices/[kind]",
-                params: { kind: "breath" },
-              })
-            }
+            onPress={() => handlePracticeKindPress("breath")}
           >
             <View style={styles.iconWrap}>
               <Ionicons name="leaf-outline" size={26} color="#6F55AA" />
@@ -62,12 +100,7 @@ export default function PracticesHomeScreen() {
               styles.meditationCard,
               pressed ? styles.cardPressed : null,
             ]}
-            onPress={() =>
-              router.push({
-                pathname: "/practices/[kind]",
-                params: { kind: "meditation" },
-              })
-            }
+            onPress={() => handlePracticeKindPress("meditation")}
           >
             <View style={styles.iconWrap}>
               <Ionicons name="moon-outline" size={26} color="#6F55AA" />
@@ -82,7 +115,10 @@ export default function PracticesHomeScreen() {
               <Text style={styles.cardLink}>Pratikleri gör →</Text>
             </View>
           </Pressable>
-        </ScrollView>
+          </ScrollView>
+
+          <PracticeBannerAd />
+        </View>
       </SafeAreaView>
     </>
   );
@@ -92,6 +128,10 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: "#FFF8F7",
+  },
+
+  page: {
+    flex: 1,
   },
 
   container: {
@@ -185,5 +225,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     color: "#6F55AA",
+  },
+
+  adContainer: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+    alignItems: "center",
   },
 });
