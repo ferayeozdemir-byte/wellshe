@@ -1,4 +1,10 @@
-import { publicStorageUrl, sbRpc } from "./supabase";
+// lib/searchArticlesRemote.ts
+
+import {
+  resolveAssetUrl,
+  sbRpc,
+  type StorageAssetLike,
+} from "./supabase";
 
 export type SearchArticleRemoteItem = {
   article_id: string;
@@ -20,8 +26,25 @@ type SearchRpcRow = {
   category_id: string | null;
   cover_bucket: string | null;
   cover_path: string | null;
+  cover_public_url?: string | null;
+  cover_storage_provider?: string | null;
+  cover_storage_key?: string | null;
   rank?: number | null;
 };
+
+function buildCoverAsset(row: SearchRpcRow): StorageAssetLike | null {
+  if (!row.cover_public_url && !row.cover_bucket && !row.cover_path) {
+    return null;
+  }
+
+  return {
+    public_url: row.cover_public_url ?? null,
+    bucket: row.cover_bucket ?? null,
+    path: row.cover_path ?? null,
+    storage_provider: row.cover_storage_provider ?? null,
+    storage_key: row.cover_storage_key ?? null,
+  };
+}
 
 export async function searchArticlesRemote(
   query: string,
@@ -37,11 +60,7 @@ export async function searchArticlesRemote(
   });
 
   return (rows ?? []).map((row: SearchRpcRow) => {
-    let imageUrl: string | null = null;
-
-    if (row.cover_bucket && row.cover_path) {
-      imageUrl = publicStorageUrl(row.cover_bucket, row.cover_path);
-    }
+    const imageUrl = resolveAssetUrl(buildCoverAsset(row));
 
     return {
       article_id: row.article_id,

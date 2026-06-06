@@ -1,7 +1,7 @@
 import { searchArticlesRemote } from "@/lib/searchArticlesRemote";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -30,8 +30,8 @@ export default function SearchScreen() {
 
   const trimmedQuery = useMemo(() => query.trim(), [query]);
 
-  async function runSearch(nextQuery?: string) {
-    const q = String(nextQuery ?? query).trim();
+  const runSearch = useCallback(async (nextQuery: string) => {
+    const q = String(nextQuery ?? "").trim();
 
     if (q.length < 2) {
       setItems([]);
@@ -42,25 +42,29 @@ export default function SearchScreen() {
     try {
       setLoading(true);
       setError(null);
+
       const rows = await searchArticlesRemote(q, 20);
       setItems(rows);
-    } catch (e: any) {
+    } catch {
       setError("Arama sırasında bir sorun oluştu.");
       setItems([]);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    setQuery(String(initialQuery ?? ""));
-    if (String(initialQuery ?? "").trim().length >= 2) {
-      void runSearch(String(initialQuery ?? ""));
+    const nextQuery = String(initialQuery ?? "");
+
+    setQuery(nextQuery);
+
+    if (nextQuery.trim().length >= 2) {
+      void runSearch(nextQuery);
     } else {
       setItems([]);
       setError(null);
     }
-  }, [initialQuery]);
+  }, [initialQuery, runSearch]);
 
   function submitSearch() {
     const q = trimmedQuery;

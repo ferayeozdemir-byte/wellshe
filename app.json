@@ -42,12 +42,12 @@
     },
     "android": {
       "package": "com.feraye.wellshe",
-      "versionCode": 23,
+      "versionCode": 24,
       "permissions": [
         "com.google.android.gms.permission.AD_ID"
       ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/logo/wellshe_icon_1024.png",
+        "foregroundImage": "./assets/images/logo/wellshe_adaptive_foreground.png",
         "backgroundColor": "#ffffff"
       },
       "config": {

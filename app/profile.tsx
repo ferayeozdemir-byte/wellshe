@@ -167,7 +167,7 @@ export default function ProfileScreen() {
       }
 
       await Linking.openURL(APP_STORE_WEB_URL);
-    } catch (error) {
+    } catch {
       try {
         await Linking.openURL(APP_STORE_WEB_URL);
       } catch {

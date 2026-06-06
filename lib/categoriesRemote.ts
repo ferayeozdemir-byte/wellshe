@@ -1,11 +1,11 @@
 // lib/categoriesRemote.ts
-import { publicStorageUrl, sbGetMany } from "./supabase";
+import { resolveAssetUrl, sbGetMany, type StorageAssetLike } from "./supabase";
 
 /**
  * ⚠️ DEPRECATED
  * -----------------------------------------
  * Bu fonksiyon eski `image_url` modeline dayanır.
- * WellShe artık `assets (bucket/path)` modeli kullanmaktadır.
+ * WellShe artık `assets (bucket/path/public_url)` modeli kullanmaktadır.
  *
  * ❌ KULLANMAYIN
  * Category ekranları kendi assets tabanlı sorgularını yapıyor.
@@ -33,30 +33,42 @@ export type RemoteLatestHomeItem = {
   imageUrl?: string | null;
 };
 
-export async function fetchLatestArticlesRemote(limit = 3) {
+type LatestArticleRow = {
+  article_id: string;
+  title: string | null;
+  summary: string | null;
+  slug: string | null;
+  created_at?: string | null;
+  articles?: {
+    category_id?: string | null;
+    status?: string | null;
+    assets?: StorageAssetLike | StorageAssetLike[] | null;
+  } | null;
+};
+
+export async function fetchLatestArticlesRemote(
+  limit = 3
+): Promise<RemoteLatestHomeItem[]> {
   const path =
     `/article_translations` +
     `?select=` +
     // çeviri alanları
     `article_id,title,summary,slug,created_at,` +
     // bağlı olduğu article ve cover asset
-    `articles!inner(category_id,status,assets(bucket,path,content_type))` +
+    `articles!inner(` +
+    `category_id,status,` +
+    `assets(bucket,path,public_url,storage_provider,storage_key,content_type)` +
+    `)` +
     `&lang=eq.tr` +
     `&articles.status=eq.published` +
     `&order=created_at.desc` +
     `&limit=${limit}`;
 
-  const rows = await sbGetMany<any>(path);
+  const rows = await sbGetMany<LatestArticleRow>(path);
 
-  return (rows ?? []).map((r: any) => {
-    // assets tek kayıt veya dizi olabilir, ikisini de ele al
+  return (rows ?? []).map((r) => {
     const rawAssets = r.articles?.assets;
     const asset = Array.isArray(rawAssets) ? rawAssets[0] : rawAssets;
-
-    let imageUrl: string | null = null;
-    if (asset?.bucket && asset?.path) {
-      imageUrl = publicStorageUrl(asset.bucket, asset.path);
-    }
 
     return {
       article_id: r.article_id,
@@ -65,7 +77,7 @@ export async function fetchLatestArticlesRemote(limit = 3) {
       slug: r.slug ?? null,
       created_at: r.created_at ?? null,
       category_id: r.articles?.category_id ?? null,
-      imageUrl,
-    } as RemoteLatestHomeItem;
+      imageUrl: resolveAssetUrl(asset),
+    };
   });
 }

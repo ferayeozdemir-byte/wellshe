@@ -110,13 +110,17 @@ type CyclePhase =
 
 // Bildirimlerin nasıl gösterileceğini ayarla
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async (notification) => {
+    const silent = notification.request.content.data?.silent === true;
+
+    return {
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: !silent,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 // ✅ Bildirim helper’ları (HomeScreen’in ÜSTÜNDE durmalı)
@@ -128,12 +132,21 @@ async function ensureNotificationPermission(): Promise<boolean> {
   return req.status === "granted";
 }
 
-async function ensureAndroidChannel() {
+const SILENT_REMINDER_CHANNEL_ID = "reminders";
+const SOUND_REMINDER_CHANNEL_ID = "reminders_sound_v1";
+
+async function ensureAndroidChannel(channelId = SILENT_REMINDER_CHANNEL_ID) {
   if (Platform.OS !== "android") return;
+
   try {
-    await Notifications.setNotificationChannelAsync("reminders", {
-      name: "Hatırlatmalar",
-      importance: Notifications.AndroidImportance.DEFAULT,
+    const isSoundChannel = channelId === SOUND_REMINDER_CHANNEL_ID;
+
+    await Notifications.setNotificationChannelAsync(channelId, {
+      name: isSoundChannel ? "Sesli Hatırlatmalar" : "Hatırlatmalar",
+      importance: isSoundChannel
+        ? Notifications.AndroidImportance.HIGH
+        : Notifications.AndroidImportance.DEFAULT,
+      ...(isSoundChannel ? { sound: "default" } : {}),
     });
   } catch {
     // no-op
@@ -180,13 +193,13 @@ function pickLatestWeekly(
   const getKey = (x: any) =>
     String(
       x?.created_at ??
-        x?.createdAt ??
-        x?.date ??
-        x?.week_start ??
-        x?.weekStart ??
-        x?.week_label ??
-        x?.weekLabel ??
-        ""
+      x?.createdAt ??
+      x?.date ??
+      x?.week_start ??
+      x?.weekStart ??
+      x?.week_label ??
+      x?.weekLabel ??
+      ""
     );
 
   const sorted = [...arr].sort((a: any, b: any) =>
@@ -272,7 +285,7 @@ const WEEKLY_FEATURED_IMAGES = {
 // 🔥 Motivasyon cümleleri
 const MOTIVATION_QUOTES: string[] = [
   "Bugün kendin için en az bir küçük iyilik yap. Küçük adımlar, büyük değişim yaratır.",
-  "Kendine nazik ol. Unutma, en çok kendi desteğine ihtiyacın var.",
+  "Kendine karşı nazik ol. Unutma, en çok kendi desteğine ihtiyacın var.",
   "Bugün mükemmel olmak zorunda değilsin, sadece ilerlemen yeterli.",
   "Küçük bir adım bile yerinde saymaktan daha iyidir.",
   "Dinlenmek, pes etmek değildir. Yeniden başlamak için nefes almaktır.",
@@ -300,7 +313,7 @@ const MOTIVATION_QUOTES: string[] = [
   "Zihnini sakinleştirdiğinde kalbin konuşur.",
   "Hiçbir şey tesadüf değil. Her şey büyük bir bulmacanın parçası.",
   "Senin yolun, senin hızın.",
-  "İyileşmek bir yolculuk ve yol, adım adım güzelleşir.",
+  "İyileşmek bir yolculuk. Ve yol, adım adım güzelleşir.",
   "Kendine sınır koyma, potansiyelin düşündüğünden büyük.",
   "İçindeki güç, sandığından daha fazla.",
   "Bir dur, nefes al ve devam et.",
@@ -314,7 +327,7 @@ const MOTIVATION_QUOTES: string[] = [
   "Cesaret, korkunun yokluğu değil; ona rağmen yürümektir.",
   "Hayat, seninle birlikte şekilleniyor.",
   "Kendine zaman tanı. Her şey yoluna girecek.",
-  "Sen aynı anda hem bir başlangıç hem bir mucizesin.",
+  "Sen aynı anda hem başlangıç hem mucizesin.",
   "Güne iyi bir niyetle başla, gerisi akacaktır.",
   "Bugün hayatına iyi gelecek bir seçim yap.",
   "Zorluklar seni durdurmak için değil, güçlendirmek için var.",
@@ -329,10 +342,10 @@ const MOTIVATION_QUOTES: string[] = [
   "Başarı, sabırlı olanları sever.",
   "Bugün, zihnini yenilemek için bir fırsat.",
   "Kendinle barıştığında dünya da seninle barışır.",
-  "Küçük gelişmeleri kutla, onlar sana güç verir.",
+  "Küçük gelişmeleri kutla. Onlar sana güç verir.",
   "Hayallerin sandığından daha yakın!",
   "Kendinle gurur duy, bugünlere kolay gelmedin!",
-  "Sınırlarını aşman gereken tek kişi, dünkü sensin.",
+  "Rekabet etmen gereken tek kişi, dünkü sensin.",
   "Bugün, yeniden başlamak için mükemmel bir gün.",
   "Zihnini karıştıran şeyleri sadeleştir.",
   "Enerjini doğru yere yönlendirdiğinde sonuçların değiştiğini görebilirsin.",
@@ -346,12 +359,12 @@ const MOTIVATION_QUOTES: string[] = [
   "Bugün güzellikleri fark etmeye niyet et.",
   "Hayat senden yana. Yeter ki sen de kendinden yana ol.",
   "En zor günün bile içinde bir kıvılcım vardır.",
-  "Her gün yeniden başlamak için bir şans.",
+  "Her gün, yeniden başlamak için bir şans.",
   "Kalbini dinlediğinde yolunu bulursun.",
   "Ne kadar ilerlediğini fark etmek için bir an dur.",
   "Kendine alan aç. Büyümek için buna ihtiyacın var.",
   "Şimdi başla! Mükemmel anı bekleme.",
-  "Kendini, olduğun yerden daha iyi bir yere taşıyabilirsin.",
+  "Kendini, olduğundan daha iyi bir yere taşıyabilirsin.",
   "Bugün hayatına iyi gelen şeylere odaklan.",
   "Kendini yenilemek adına harekete geçmek için asla geç değil.",
   "Şefkati bir prensip hâline getir. En çok da kendin için.",
@@ -1036,13 +1049,13 @@ export default function HomeScreen() {
 
   // Regl bilgisi (tek kaynak: lib/cycle)
   const [cycleInfo, setCycleInfo] = useState<{
-  phaseKey: CyclePhase;
-  phaseTitle: string;
-  phaseDescription: string;
-  nextPeriodDateText: string;
-  statusText: string;
-  cycleDayLabel: string;
-} | null>(null);
+    phaseKey: CyclePhase;
+    phaseTitle: string;
+    phaseDescription: string;
+    nextPeriodDateText: string;
+    statusText: string;
+    cycleDayLabel: string;
+  } | null>(null);
 
   const motivationText = getTodayMotivation();
   const phaseOneLiner = cycleInfo
@@ -1119,7 +1132,7 @@ export default function HomeScreen() {
   const latestBook = weeklyLatest?.book ?? pickLatestWeekly(weeklyArchive.book);
 
   const getWeeklyTeaser = (item: WeeklyItem | null, fallback: string) =>
-  String((item as any)?.teaser ?? fallback).trim();
+    String((item as any)?.teaser ?? fallback).trim();
 
   const movieWeeklyTeaser = getWeeklyTeaser(
     latestMovie,
@@ -1152,128 +1165,128 @@ export default function HomeScreen() {
 
   // Regl verilerini storage'dan okuyup cycleInfo'yu güncelleyen fonksiyon
   const loadPeriodData = useCallback(async () => {
-  try {
-    const [settingsRaw, logsRaw] = await Promise.all([
-      getFirstExisting(PERIOD_SETTINGS_KEYS),
-      getFirstExisting(PERIOD_LOGS_KEYS),
-    ]);
-
-    console.log("🔴 PERIOD DEBUG - RAW values:", { settingsRaw, logsRaw });
-
-    if (!settingsRaw || !logsRaw) {
-      setCycleInfo(null);
-      return;
-    }
-
-    let settings: PeriodSettings;
-    let logs: PeriodLog[] = [];
-
     try {
-      settings = JSON.parse(settingsRaw);
-    } catch (e) {
-      console.log("❌ PERIOD DEBUG - settings JSON parse hatası:", e);
-      setCycleInfo(null);
-      return;
-    }
+      const [settingsRaw, logsRaw] = await Promise.all([
+        getFirstExisting(PERIOD_SETTINGS_KEYS),
+        getFirstExisting(PERIOD_LOGS_KEYS),
+      ]);
 
-    try {
-      const parsedLogs = JSON.parse(logsRaw);
+      console.log("🔴 PERIOD DEBUG - RAW values:", { settingsRaw, logsRaw });
 
-      if (Array.isArray(parsedLogs)) {
-        logs = parsedLogs;
-      } else if (parsedLogs && Array.isArray(parsedLogs.logs)) {
-        logs = parsedLogs.logs;
-      } else if (parsedLogs && parsedLogs.startDate) {
-        logs = [parsedLogs as PeriodLog];
-      } else {
-        console.log("❌ PERIOD DEBUG - logs beklenen formatta değil:", parsedLogs);
+      if (!settingsRaw || !logsRaw) {
         setCycleInfo(null);
         return;
       }
-    } catch (e) {
-      console.log("❌ PERIOD DEBUG - logs JSON parse hatası:", e);
-      setCycleInfo(null);
-      return;
-    }
 
-    const normalizedLogs = logs
-      .filter((item) => !!item?.startDate)
-      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+      let settings: PeriodSettings;
+      let logs: PeriodLog[] = [];
 
-    if (!normalizedLogs.length) {
-      setCycleInfo(null);
-      return;
-    }
-
-    const phase = getCyclePhaseInfo(normalizedLogs, settings);
-    const nextIso = getNextPeriodStart(normalizedLogs, settings);
-    const nextPeriodDateText = nextIso
-      ? formatDateTRFromISO(nextIso)
-      : "Henüz hesaplanamıyor";
-
-    const lastStartIso = normalizedLogs[normalizedLogs.length - 1].startDate;
-
-    const dayMs = 24 * 60 * 60 * 1000;
-
-    const parseIsoDate = (iso: string) => {
-      const d = new Date(`${iso}T00:00:00`);
-      d.setHours(0, 0, 0, 0);
-      return d;
-    };
-
-    const todayIso = toISODate(new Date());
-    const todayDate = parseIsoDate(todayIso);
-    const lastStartDate = parseIsoDate(lastStartIso);
-    const nextDate = nextIso ? parseIsoDate(nextIso) : null;
-
-    const cycleDayRaw =
-      Math.floor((todayDate.getTime() - lastStartDate.getTime()) / dayMs) + 1;
-
-    const cycleDay =
-      Number.isFinite(cycleDayRaw) && cycleDayRaw > 0 ? cycleDayRaw : 1;
-
-    let statusText = "Takvimini güncel tut";
-
-    if (cycleDay <= settings.periodLength) {
-      statusText = `Reglin ${cycleDay}. günü`;
-    } else if (nextDate) {
-      const daysUntilNextPeriod = Math.round(
-        (nextDate.getTime() - todayDate.getTime()) / dayMs
-      );
-
-      if (daysUntilNextPeriod > 0) {
-        statusText = `${daysUntilNextPeriod} gün kaldı`;
-      } else if (daysUntilNextPeriod === 0) {
-        statusText = "Bugün başlayabilir";
-      } else {
-        statusText = `${Math.abs(daysUntilNextPeriod)} gün gecikme`;
+      try {
+        settings = JSON.parse(settingsRaw);
+      } catch (e) {
+        console.log("❌ PERIOD DEBUG - settings JSON parse hatası:", e);
+        setCycleInfo(null);
+        return;
       }
+
+      try {
+        const parsedLogs = JSON.parse(logsRaw);
+
+        if (Array.isArray(parsedLogs)) {
+          logs = parsedLogs;
+        } else if (parsedLogs && Array.isArray(parsedLogs.logs)) {
+          logs = parsedLogs.logs;
+        } else if (parsedLogs && parsedLogs.startDate) {
+          logs = [parsedLogs as PeriodLog];
+        } else {
+          console.log("❌ PERIOD DEBUG - logs beklenen formatta değil:", parsedLogs);
+          setCycleInfo(null);
+          return;
+        }
+      } catch (e) {
+        console.log("❌ PERIOD DEBUG - logs JSON parse hatası:", e);
+        setCycleInfo(null);
+        return;
+      }
+
+      const normalizedLogs = logs
+        .filter((item) => !!item?.startDate)
+        .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+      if (!normalizedLogs.length) {
+        setCycleInfo(null);
+        return;
+      }
+
+      const phase = getCyclePhaseInfo(normalizedLogs, settings);
+      const nextIso = getNextPeriodStart(normalizedLogs, settings);
+      const nextPeriodDateText = nextIso
+        ? formatDateTRFromISO(nextIso)
+        : "Henüz hesaplanamıyor";
+
+      const lastStartIso = normalizedLogs[normalizedLogs.length - 1].startDate;
+
+      const dayMs = 24 * 60 * 60 * 1000;
+
+      const parseIsoDate = (iso: string) => {
+        const d = new Date(`${iso}T00:00:00`);
+        d.setHours(0, 0, 0, 0);
+        return d;
+      };
+
+      const todayIso = toISODate(new Date());
+      const todayDate = parseIsoDate(todayIso);
+      const lastStartDate = parseIsoDate(lastStartIso);
+      const nextDate = nextIso ? parseIsoDate(nextIso) : null;
+
+      const cycleDayRaw =
+        Math.floor((todayDate.getTime() - lastStartDate.getTime()) / dayMs) + 1;
+
+      const cycleDay =
+        Number.isFinite(cycleDayRaw) && cycleDayRaw > 0 ? cycleDayRaw : 1;
+
+      let statusText = "Takvimini güncel tut";
+
+      if (cycleDay <= settings.periodLength) {
+        statusText = `Reglin ${cycleDay}. günü`;
+      } else if (nextDate) {
+        const daysUntilNextPeriod = Math.round(
+          (nextDate.getTime() - todayDate.getTime()) / dayMs
+        );
+
+        if (daysUntilNextPeriod > 0) {
+          statusText = `${daysUntilNextPeriod} gün kaldı`;
+        } else if (daysUntilNextPeriod === 0) {
+          statusText = "Bugün başlayabilir";
+        } else {
+          statusText = `${Math.abs(daysUntilNextPeriod)} gün gecikme`;
+        }
+      }
+
+      const cycleDayLabel =
+        cycleDay > 0 ? `Döngünün ${cycleDay}. günü` : "Döngü bilgisi hazır";
+
+      console.log("🔴 PERIOD DEBUG - phase/next:", {
+        phaseKey: phase.key,
+        phaseTitle: phase.title,
+        nextIso,
+        statusText,
+        cycleDayLabel,
+      });
+
+      setCycleInfo({
+        phaseKey: phase.key as CyclePhase,
+        phaseTitle: phase.title,
+        phaseDescription: phase.description,
+        nextPeriodDateText,
+        statusText,
+        cycleDayLabel,
+      });
+    } catch (e) {
+      console.log("❌ Regl verileri yüklenirken genel hata:", e);
+      setCycleInfo(null);
     }
-
-    const cycleDayLabel =
-      cycleDay > 0 ? `Döngünün ${cycleDay}. günü` : "Döngü bilgisi hazır";
-
-    console.log("🔴 PERIOD DEBUG - phase/next:", {
-      phaseKey: phase.key,
-      phaseTitle: phase.title,
-      nextIso,
-      statusText,
-      cycleDayLabel,
-    });
-
-    setCycleInfo({
-      phaseKey: phase.key as CyclePhase,
-      phaseTitle: phase.title,
-      phaseDescription: phase.description,
-      nextPeriodDateText,
-      statusText,
-      cycleDayLabel,
-    });
-  } catch (e) {
-    console.log("❌ Regl verileri yüklenirken genel hata:", e);
-    setCycleInfo(null);
-  }
-}, []);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -1354,7 +1367,7 @@ export default function HomeScreen() {
         return;
       }
 
-      await ensureAndroidChannel();
+      await ensureAndroidChannel(SOUND_REMINDER_CHANNEL_ID);
       await cancelStoredNotifications(WATER_IDS_KEY);
 
       const ids: string[] = [];
@@ -1367,8 +1380,11 @@ export default function HomeScreen() {
           content: {
             title: "Su zamanı 💧",
             body: "Bir bardak su içme zamanı 🧡",
-            sound: false,
-            ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
+            sound: true,
+            data: { reminderType: "water", silent: false },
+            ...(Platform.OS === "android"
+              ? { channelId: SOUND_REMINDER_CHANNEL_ID }
+              : {}),
           },
           trigger: {
             type: Notifications.SchedulableTriggerInputTypes.DAILY,
@@ -1515,7 +1531,7 @@ export default function HomeScreen() {
         return;
       }
 
-      await ensureAndroidChannel();
+      await ensureAndroidChannel(SOUND_REMINDER_CHANNEL_ID);
       await cancelStoredNotifications(MOVE_IDS_KEY);
 
       const ids: string[] = [];
@@ -1528,8 +1544,11 @@ export default function HomeScreen() {
           content: {
             title: "Hareket Zamanı 🧘‍♀️",
             body: "Kısa bir yürüyüş veya esneme ile bedenini harekete geçir.",
-            sound: false,
-            ...(Platform.OS === "android" ? { channelId: "reminders" } : {}),
+            sound: true,
+            data: { reminderType: "move", silent: false },
+            ...(Platform.OS === "android"
+              ? { channelId: SOUND_REMINDER_CHANNEL_ID }
+              : {}),
           },
           trigger: {
             type: Notifications.SchedulableTriggerInputTypes.DAILY,
@@ -1982,143 +2001,143 @@ export default function HomeScreen() {
             contentContainerStyle={styles.reminderKeyboardScrollContent}
           >
             <View style={styles.reminderModalCard}>
-            <View style={styles.reminderModalHandle} />
+              <View style={styles.reminderModalHandle} />
 
-            <View style={styles.reminderModalHeader}>
-              <View style={styles.reminderTitleRow}>
-                <Text style={styles.reminderEmoji}>💧</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.reminderModalTitle}>
-                    Su Hatırlatıcısı Ayarları
-                  </Text>
-                  <Text style={styles.reminderModalSubtitle}>
-                    Gün içindeki su molalarını kendi ritmine göre ayarla.
-                  </Text>
+              <View style={styles.reminderModalHeader}>
+                <View style={styles.reminderTitleRow}>
+                  <Text style={styles.reminderEmoji}>💧</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.reminderModalTitle}>
+                      Su Hatırlatıcısı Ayarları
+                    </Text>
+                    <Text style={styles.reminderModalSubtitle}>
+                      Gün içindeki su molalarını kendi ritmine göre ayarla.
+                    </Text>
+                  </View>
+                </View>
+
+                <Pressable
+                  onPress={() => setWaterReminderModalVisible(false)}
+                  hitSlop={10}
+                >
+                  <Text style={styles.reminderCloseText}>Kapat</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.reminderStatusBox}>
+                <Text style={styles.reminderStatusText}>
+                  Hatırlatıcı {waterReminderSettings.enabled ? "açık" : "kapalı"}
+                </Text>
+                <View
+                  style={[
+                    styles.reminderStatusDot,
+                    waterReminderSettings.enabled
+                      ? styles.reminderStatusDotActive
+                      : null,
+                  ]}
+                />
+              </View>
+
+              <View style={styles.reminderFormCard}>
+                <View style={styles.reminderInputRow}>
+                  <View style={styles.reminderInputLabelRow}>
+                    <Ionicons name="time-outline" size={18} color="#7A5751" />
+                    <Text style={styles.reminderInputLabel}>Başlangıç saati</Text>
+                  </View>
+                  <TextInput
+                    value={waterStartInput}
+                    onChangeText={setWaterStartInput}
+                    placeholder="09:00"
+                    placeholderTextColor="#B99B95"
+                    keyboardType="numbers-and-punctuation"
+                    maxLength={5}
+                    style={styles.reminderTimeInput}
+                  />
+                </View>
+
+                <View style={styles.reminderInputRow}>
+                  <View style={styles.reminderInputLabelRow}>
+                    <Ionicons name="time-outline" size={18} color="#7A5751" />
+                    <Text style={styles.reminderInputLabel}>Bitiş saati</Text>
+                  </View>
+                  <TextInput
+                    value={waterEndInput}
+                    onChangeText={setWaterEndInput}
+                    placeholder="22:00"
+                    placeholderTextColor="#B99B95"
+                    keyboardType="numbers-and-punctuation"
+                    maxLength={5}
+                    style={styles.reminderTimeInput}
+                  />
+                </View>
+
+                <View style={styles.reminderInputRowLast}>
+                  <View style={styles.reminderInputLabelRow}>
+                    <Ionicons name="repeat-outline" size={18} color="#7A5751" />
+                    <Text style={styles.reminderInputLabel}>
+                      Hatırlatma aralığı (dakika)
+                    </Text>
+                  </View>
+                  <TextInput
+                    value={waterIntervalInput}
+                    onChangeText={(value) =>
+                      setWaterIntervalInput(value.replace(/[^0-9]/g, ""))
+                    }
+                    placeholder="60"
+                    placeholderTextColor="#B99B95"
+                    keyboardType="number-pad"
+                    maxLength={3}
+                    style={styles.reminderTimeInput}
+                  />
+                </View>
+
+                <Text style={styles.reminderHelperText}>
+                  İstediğin dakikayı yazabilir ya da hazır seçeneklerden birini
+                  seçebilirsin.
+                </Text>
+
+                <View style={styles.reminderChipRow}>
+                  {WATER_INTERVAL_PRESETS.map((minutes) => {
+                    const selected = waterIntervalInput === String(minutes);
+
+                    return (
+                      <Pressable
+                        key={minutes}
+                        style={[
+                          styles.reminderChip,
+                          selected ? styles.reminderChipSelected : null,
+                        ]}
+                        onPress={() => setWaterIntervalInput(String(minutes))}
+                      >
+                        <Text
+                          style={[
+                            styles.reminderChipText,
+                            selected ? styles.reminderChipTextSelected : null,
+                          ]}
+                        >
+                          {minutes} dk
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               </View>
 
               <Pressable
-                onPress={() => setWaterReminderModalVisible(false)}
-                hitSlop={10}
+                style={styles.reminderPrimaryButton}
+                onPress={handleSaveWaterReminderSettings}
               >
-                <Text style={styles.reminderCloseText}>Kapat</Text>
+                <Text style={styles.reminderPrimaryButtonText}>Kaydet</Text>
               </Pressable>
-            </View>
 
-            <View style={styles.reminderStatusBox}>
-              <Text style={styles.reminderStatusText}>
-                Hatırlatıcı {waterReminderSettings.enabled ? "açık" : "kapalı"}
-              </Text>
-              <View
-                style={[
-                  styles.reminderStatusDot,
-                  waterReminderSettings.enabled
-                    ? styles.reminderStatusDotActive
-                    : null,
-                ]}
-              />
-            </View>
-
-            <View style={styles.reminderFormCard}>
-              <View style={styles.reminderInputRow}>
-                <View style={styles.reminderInputLabelRow}>
-                  <Ionicons name="time-outline" size={18} color="#7A5751" />
-                  <Text style={styles.reminderInputLabel}>Başlangıç saati</Text>
-                </View>
-                <TextInput
-                  value={waterStartInput}
-                  onChangeText={setWaterStartInput}
-                  placeholder="09:00"
-                  placeholderTextColor="#B99B95"
-                  keyboardType="numbers-and-punctuation"
-                  maxLength={5}
-                  style={styles.reminderTimeInput}
-                />
-              </View>
-
-              <View style={styles.reminderInputRow}>
-                <View style={styles.reminderInputLabelRow}>
-                  <Ionicons name="time-outline" size={18} color="#7A5751" />
-                  <Text style={styles.reminderInputLabel}>Bitiş saati</Text>
-                </View>
-                <TextInput
-                  value={waterEndInput}
-                  onChangeText={setWaterEndInput}
-                  placeholder="22:00"
-                  placeholderTextColor="#B99B95"
-                  keyboardType="numbers-and-punctuation"
-                  maxLength={5}
-                  style={styles.reminderTimeInput}
-                />
-              </View>
-
-              <View style={styles.reminderInputRowLast}>
-                <View style={styles.reminderInputLabelRow}>
-                  <Ionicons name="repeat-outline" size={18} color="#7A5751" />
-                  <Text style={styles.reminderInputLabel}>
-                    Hatırlatma aralığı (dakika)
-                  </Text>
-                </View>
-                <TextInput
-                  value={waterIntervalInput}
-                  onChangeText={(value) =>
-                    setWaterIntervalInput(value.replace(/[^0-9]/g, ""))
-                  }
-                  placeholder="60"
-                  placeholderTextColor="#B99B95"
-                  keyboardType="number-pad"
-                  maxLength={3}
-                  style={styles.reminderTimeInput}
-                />
-              </View>
-
-              <Text style={styles.reminderHelperText}>
-                İstediğin dakikayı yazabilir ya da hazır seçeneklerden birini
-                seçebilirsin.
-              </Text>
-
-              <View style={styles.reminderChipRow}>
-                {WATER_INTERVAL_PRESETS.map((minutes) => {
-                  const selected = waterIntervalInput === String(minutes);
-
-                  return (
-                    <Pressable
-                      key={minutes}
-                      style={[
-                        styles.reminderChip,
-                        selected ? styles.reminderChipSelected : null,
-                      ]}
-                      onPress={() => setWaterIntervalInput(String(minutes))}
-                    >
-                      <Text
-                        style={[
-                          styles.reminderChipText,
-                          selected ? styles.reminderChipTextSelected : null,
-                        ]}
-                      >
-                        {minutes} dk
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-
-            <Pressable
-              style={styles.reminderPrimaryButton}
-              onPress={handleSaveWaterReminderSettings}
-            >
-              <Text style={styles.reminderPrimaryButtonText}>Kaydet</Text>
-            </Pressable>
-
-            <Pressable
-              style={styles.reminderSecondaryButton}
-              onPress={handleDisableWaterReminder}
-            >
-              <Text style={styles.reminderSecondaryButtonText}>
-                Hatırlatıcıyı kapat
-              </Text>
-            </Pressable>
+              <Pressable
+                style={styles.reminderSecondaryButton}
+                onPress={handleDisableWaterReminder}
+              >
+                <Text style={styles.reminderSecondaryButtonText}>
+                  Hatırlatıcıyı kapat
+                </Text>
+              </Pressable>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -2141,108 +2160,108 @@ export default function HomeScreen() {
             contentContainerStyle={styles.reminderKeyboardScrollContent}
           >
             <View style={styles.reminderModalCard}>
-            <View style={styles.reminderModalHandle} />
+              <View style={styles.reminderModalHandle} />
 
-            <View style={styles.reminderModalHeader}>
-              <View style={styles.reminderTitleRow}>
-                <Text style={styles.reminderEmoji}>🧘‍♀️</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.reminderModalTitle}>
-                    Hareket Hatırlatıcısı
-                  </Text>
-                  <Text style={styles.reminderModalSubtitle}>
-                    Gün içinde istediğin saatlerde kısa hareket molaları ekle.
-                  </Text>
-                </View>
-              </View>
-
-              <Pressable
-                onPress={() => setMoveReminderModalVisible(false)}
-                hitSlop={10}
-              >
-                <Text style={styles.reminderCloseText}>Kapat</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.reminderStatusBox}>
-              <Text style={styles.reminderStatusText}>
-                Hatırlatıcı {moveReminderSettings.enabled ? "açık" : "kapalı"}
-              </Text>
-              <View
-                style={[
-                  styles.reminderStatusDot,
-                  moveReminderSettings.enabled
-                    ? styles.reminderStatusDotActive
-                    : null,
-                ]}
-              />
-            </View>
-
-            <View style={styles.reminderFormCard}>
-              <Text style={styles.reminderSectionLabel}>Seçtiğin saatler</Text>
-
-              {moveReminderTimesInput.length > 0 ? (
-                <View style={styles.moveTimeChipWrap}>
-                  {moveReminderTimesInput.map((time) => (
-                    <Pressable
-                      key={time}
-                      style={styles.moveTimeChip}
-                      onPress={() => handleRemoveMoveReminderTime(time)}
-                    >
-                      <Text style={styles.moveTimeChipText}>{time}</Text>
-                      <Text style={styles.moveTimeChipRemove}>×</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              ) : (
-                <Text style={styles.reminderHelperText}>
-                  Henüz saat eklemedin. Aşağıdan istediğin saati yazıp ekle.
-                </Text>
-              )}
-
-              <View style={styles.moveAddRow}>
-                <View style={styles.moveAddInputWrap}>
-                  <Ionicons name="time-outline" size={18} color="#7A5751" />
-                  <TextInput
-                    value={moveTimeInput}
-                    onChangeText={setMoveTimeInput}
-                    placeholder="15:20"
-                    placeholderTextColor="#B99B95"
-                    keyboardType="numbers-and-punctuation"
-                    maxLength={5}
-                    style={styles.moveTimeInput}
-                  />
+              <View style={styles.reminderModalHeader}>
+                <View style={styles.reminderTitleRow}>
+                  <Text style={styles.reminderEmoji}>🧘‍♀️</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.reminderModalTitle}>
+                      Hareket Hatırlatıcısı
+                    </Text>
+                    <Text style={styles.reminderModalSubtitle}>
+                      Gün içinde istediğin saatlerde kısa hareket molaları ekle.
+                    </Text>
+                  </View>
                 </View>
 
                 <Pressable
-                  style={styles.moveAddButton}
-                  onPress={handleAddMoveReminderTime}
+                  onPress={() => setMoveReminderModalVisible(false)}
+                  hitSlop={10}
                 >
-                  <Text style={styles.moveAddButtonText}>Saat ekle</Text>
+                  <Text style={styles.reminderCloseText}>Kapat</Text>
                 </Pressable>
               </View>
 
-              <Text style={styles.reminderHelperText}>
-                İstediğin saati kendin ekleyebilirsin. Günde birden fazla
-                hatırlatma seçebilirsin.
-              </Text>
-            </View>
+              <View style={styles.reminderStatusBox}>
+                <Text style={styles.reminderStatusText}>
+                  Hatırlatıcı {moveReminderSettings.enabled ? "açık" : "kapalı"}
+                </Text>
+                <View
+                  style={[
+                    styles.reminderStatusDot,
+                    moveReminderSettings.enabled
+                      ? styles.reminderStatusDotActive
+                      : null,
+                  ]}
+                />
+              </View>
 
-            <Pressable
-              style={styles.reminderPrimaryButton}
-              onPress={handleSaveMoveReminderSettings}
-            >
-              <Text style={styles.reminderPrimaryButtonText}>Kaydet</Text>
-            </Pressable>
+              <View style={styles.reminderFormCard}>
+                <Text style={styles.reminderSectionLabel}>Seçtiğin saatler</Text>
 
-            <Pressable
-              style={styles.reminderSecondaryButton}
-              onPress={handleDisableMoveReminder}
-            >
-              <Text style={styles.reminderSecondaryButtonText}>
-                Hatırlatıcıyı kapat
-              </Text>
-            </Pressable>
+                {moveReminderTimesInput.length > 0 ? (
+                  <View style={styles.moveTimeChipWrap}>
+                    {moveReminderTimesInput.map((time) => (
+                      <Pressable
+                        key={time}
+                        style={styles.moveTimeChip}
+                        onPress={() => handleRemoveMoveReminderTime(time)}
+                      >
+                        <Text style={styles.moveTimeChipText}>{time}</Text>
+                        <Text style={styles.moveTimeChipRemove}>×</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.reminderHelperText}>
+                    Henüz saat eklemedin. Aşağıdan istediğin saati yazıp ekle.
+                  </Text>
+                )}
+
+                <View style={styles.moveAddRow}>
+                  <View style={styles.moveAddInputWrap}>
+                    <Ionicons name="time-outline" size={18} color="#7A5751" />
+                    <TextInput
+                      value={moveTimeInput}
+                      onChangeText={setMoveTimeInput}
+                      placeholder="15:20"
+                      placeholderTextColor="#B99B95"
+                      keyboardType="numbers-and-punctuation"
+                      maxLength={5}
+                      style={styles.moveTimeInput}
+                    />
+                  </View>
+
+                  <Pressable
+                    style={styles.moveAddButton}
+                    onPress={handleAddMoveReminderTime}
+                  >
+                    <Text style={styles.moveAddButtonText}>Saat ekle</Text>
+                  </Pressable>
+                </View>
+
+                <Text style={styles.reminderHelperText}>
+                  İstediğin saati kendin ekleyebilirsin. Günde birden fazla
+                  hatırlatma seçebilirsin.
+                </Text>
+              </View>
+
+              <Pressable
+                style={styles.reminderPrimaryButton}
+                onPress={handleSaveMoveReminderSettings}
+              >
+                <Text style={styles.reminderPrimaryButtonText}>Kaydet</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.reminderSecondaryButton}
+                onPress={handleDisableMoveReminder}
+              >
+                <Text style={styles.reminderSecondaryButtonText}>
+                  Hatırlatıcıyı kapat
+                </Text>
+              </Pressable>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -2250,274 +2269,274 @@ export default function HomeScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Logo */}
-              <View pointerEvents="none" style={styles.decorLayer}>
-        <View style={styles.decorBlobLeft} />
-        <View style={styles.decorBlobRight} />
-        <Text style={styles.decorFlowerRight}>✿</Text>
-        <Text style={styles.decorLeafLeft}>❀</Text>
-      </View>
-
-      {/* Sadece lotus logo */}
-      <View style={styles.appLogoCrop}>
-       <Image
-        source={require("../../assets/images/logo/lotus.png")}
-        style={styles.appLogoCropImage}
-        resizeMode="contain"
-       />
-      </View>
-
-      {/* ✅ OTA DEBUG KARTI (PROD’DA GİZLİ) */}
-      {showOtaDebug ? (
-        <View style={styles.otaCard}>
-          <Text style={styles.otaTitle}>OTA DEBUG</Text>
-          <Text style={styles.otaMono}>{otaDebug}</Text>
-
-          <Pressable style={styles.otaBtn} onPress={checkAndApplyOta}>
-            <Text style={styles.otaBtnText}>CHECK & APPLY OTA</Text>
-          </Pressable>
-
-          <Pressable style={styles.otaBtnSecondary} onPress={reloadOnly}>
-            <Text style={styles.otaBtnText}>RELOAD ONLY</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      {/* Sponsor alanı */}
-      <View style={styles.sponsorRow}>
-       <View style={styles.sponsorLogoCircle}>
-        <Image
-         source={require("../../assets/sponsors/global-solar.png")}
-         style={styles.sponsorLogoInner}
-         resizeMode="cover"
-        />
-       </View>
-
-       <Text style={styles.sponsorRowText}>ENERJİ SPONSORUMUZ</Text>
-      </View>
-
-      {/* Selamlama + Profil */}
-      <View style={styles.greetingRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.greeting}>Merhaba {name} 🌸</Text>
+        <View pointerEvents="none" style={styles.decorLayer}>
+          <View style={styles.decorBlobLeft} />
+          <View style={styles.decorBlobRight} />
+          <Text style={styles.decorFlowerRight}>✿</Text>
+          <Text style={styles.decorLeafLeft}>❀</Text>
         </View>
 
-        <View style={styles.headerActionsColumn}>
-          <TouchableOpacity
-            style={styles.profilePill}
-            onPress={() => {
-              void trackEvent({
-                event_name: "feature_used",
-                screen_name: "home",
-                feature_name: "profile_click",
-              });
+        {/* Sadece lotus logo */}
+        <View style={styles.appLogoCrop}>
+          <Image
+            source={require("../../assets/images/logo/lotus.png")}
+            style={styles.appLogoCropImage}
+            resizeMode="contain"
+          />
+        </View>
 
-              router.push("/profile");
-            }}
-          >
-            <Ionicons name="person-outline" size={16} color="#7A5751" />
-            <Text style={styles.profilePillText}>Profil</Text>
-          </TouchableOpacity>
+        {/* ✅ OTA DEBUG KARTI (PROD’DA GİZLİ) */}
+        {showOtaDebug ? (
+          <View style={styles.otaCard}>
+            <Text style={styles.otaTitle}>OTA DEBUG</Text>
+            <Text style={styles.otaMono}>{otaDebug}</Text>
 
-          <TouchableOpacity
-            style={styles.announcementBellButton}
-            onPress={handleOpenAnnouncements}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="notifications-outline" size={20} color="#7A5751" />
+            <Pressable style={styles.otaBtn} onPress={checkAndApplyOta}>
+              <Text style={styles.otaBtnText}>CHECK & APPLY OTA</Text>
+            </Pressable>
 
-            {unreadAnnouncementCount > 0 ? (
-              <View style={styles.announcementCountBadge}>
-                <Text style={styles.announcementCountText}>
-                  {unreadAnnouncementCount > 9 ? "9+" : unreadAnnouncementCount}
-                </Text>
+            <Pressable style={styles.otaBtnSecondary} onPress={reloadOnly}>
+              <Text style={styles.otaBtnText}>RELOAD ONLY</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {/* Sponsor alanı */}
+        <View style={styles.sponsorRow}>
+          <View style={styles.sponsorLogoCircle}>
+            <Image
+              source={require("../../assets/sponsors/global-solar.png")}
+              style={styles.sponsorLogoInner}
+              resizeMode="cover"
+            />
+          </View>
+
+          <Text style={styles.sponsorRowText}>ENERJİ SPONSORUMUZ</Text>
+        </View>
+
+        {/* Selamlama + Profil */}
+        <View style={styles.greetingRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.greeting}>Merhaba {name} 🌸</Text>
+          </View>
+
+          <View style={styles.headerActionsColumn}>
+            <TouchableOpacity
+              style={styles.profilePill}
+              onPress={() => {
+                void trackEvent({
+                  event_name: "feature_used",
+                  screen_name: "home",
+                  feature_name: "profile_click",
+                });
+
+                router.push("/profile");
+              }}
+            >
+              <Ionicons name="person-outline" size={16} color="#7A5751" />
+              <Text style={styles.profilePillText}>Profil</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.announcementBellButton}
+              onPress={handleOpenAnnouncements}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="notifications-outline" size={20} color="#7A5751" />
+
+              {unreadAnnouncementCount > 0 ? (
+                <View style={styles.announcementCountBadge}>
+                  <Text style={styles.announcementCountText}>
+                    {unreadAnnouncementCount > 9 ? "9+" : unreadAnnouncementCount}
+                  </Text>
+                </View>
+              ) : null}
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Günün motivasyon cümlesi */}
+        <View style={styles.motivationCard}>
+          <View style={styles.quoteRow}>
+            <Text style={styles.quoteMark}>❝</Text>
+            <Text style={styles.motivationText}>{motivationText}</Text>
+          </View>
+        </View>
+
+        {/* Döngü kartı */}
+        {cycleInfo ? (
+          <View style={styles.periodHeroCard}>
+            <View style={styles.periodHeroContent}>
+              <View style={styles.periodHeroLeft}>
+                <Text style={styles.periodTitle}>Döngün</Text>
+                <Text style={styles.phaseMiniTitle}>Bugün bedenin ne söylüyor?</Text>
+                <Text style={styles.phaseTitleText}>{cycleInfo.phaseTitle}</Text>
+                <Text style={styles.periodText}>{cycleInfo.phaseDescription}</Text>
+
+                <TouchableOpacity
+                  style={styles.periodButton}
+                  onPress={() => handlePeriodPress("cycle_card")}
+                >
+                  <Text style={styles.periodButtonText}>Regl takvimini aç</Text>
+                </TouchableOpacity>
               </View>
-            ) : null}
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      {/* Günün motivasyon cümlesi */}
-      <View style={styles.motivationCard}>
-        <View style={styles.quoteRow}>
-          <Text style={styles.quoteMark}>❝</Text>
-          <Text style={styles.motivationText}>{motivationText}</Text>
-        </View>
-      </View>
+              <View style={styles.periodHeroRight}>
+                <View style={styles.periodRingOuter}>
+                  <View style={styles.periodRingMiddle}>
+                    <View style={styles.periodRingInner}>
+                      <Text style={styles.periodHeart}>♥</Text>
+                    </View>
+                  </View>
+                </View>
 
-      {/* Döngü kartı */}
-      {cycleInfo ? (
-        <View style={styles.periodHeroCard}>
-          <View style={styles.periodHeroContent}>
-            <View style={styles.periodHeroLeft}>
-              <Text style={styles.periodTitle}>Döngün</Text>
-              <Text style={styles.phaseMiniTitle}>Bugün bedenin ne söylüyor?</Text>
-              <Text style={styles.phaseTitleText}>{cycleInfo.phaseTitle}</Text>
-              <Text style={styles.periodText}>{cycleInfo.phaseDescription}</Text>
+                <Text style={styles.periodStatusLabel}>
+                  TAHMİNİ BİR SONRAKİ REGLİNE
+                </Text>
+                <Text style={styles.periodStatusValue}>{cycleInfo.statusText}</Text>
+
+                <View style={styles.periodBadge}>
+                  <Text style={styles.periodBadgeText}>{cycleInfo.cycleDayLabel}</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.periodHeroCard}>
+            <Text style={styles.periodTitle}>Döngün</Text>
+            <Text style={styles.periodFallbackText}>
+              Regl bilgilerini eklediğinde burada fazını ve döngü özetini görebilirsin.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.periodButton}
+              onPress={() => handlePeriodPress("cycle_empty")}
+            >
+              <Text style={styles.periodButtonText}>Regl takvimini oluştur</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Su & hareket kartları */}
+        <View style={styles.utilityRow}>
+          {/* Su kartı */}
+          <View style={[styles.smallCard, styles.waterSmallCard]}>
+            <View pointerEvents="none" style={styles.waterCardGlow} />
+            <View pointerEvents="none" style={styles.waterCardWave} />
+
+            <Text style={styles.smallCardTitle}>Su Hatırlatıcısı 💧</Text>
+            <Text style={styles.smallCardText}>
+              Bugünkü hedefin {WATER_GOAL} bardak su.
+            </Text>
+            <Text style={styles.smallCardText}>
+              Şu ana kadar {waterCount} bardak içtin.
+            </Text>
+
+            <View style={styles.waterRow}>
+              <TouchableOpacity
+                style={styles.waterButton}
+                onPress={() => changeWaterCount(-1)}
+              >
+                <Text style={styles.waterButtonText}>-</Text>
+              </TouchableOpacity>
+
+              <Text style={styles.waterCountText}>{waterCount}</Text>
 
               <TouchableOpacity
-                style={styles.periodButton}
-                onPress={() => handlePeriodPress("cycle_card")}
+                style={styles.waterButton}
+                onPress={() => changeWaterCount(1)}
               >
-                <Text style={styles.periodButtonText}>Regl takvimini aç</Text>
+                <Text style={styles.waterButtonText}>+</Text>
               </TouchableOpacity>
             </View>
 
-            <View style={styles.periodHeroRight}>
-              <View style={styles.periodRingOuter}>
-                <View style={styles.periodRingMiddle}>
-                  <View style={styles.periodRingInner}>
-                    <Text style={styles.periodHeart}>♥</Text>
-                  </View>
-                </View>
-              </View>
-
-              <Text style={styles.periodStatusLabel}>
-                TAHMİNİ BİR SONRAKİ REGLİNE
-              </Text>
-              <Text style={styles.periodStatusValue}>{cycleInfo.statusText}</Text>
-
-              <View style={styles.periodBadge}>
-                <Text style={styles.periodBadgeText}>{cycleInfo.cycleDayLabel}</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-      ) : (
-        <View style={styles.periodHeroCard}>
-          <Text style={styles.periodTitle}>Döngün</Text>
-          <Text style={styles.periodFallbackText}>
-            Regl bilgilerini eklediğinde burada fazını ve döngü özetini görebilirsin.
-          </Text>
-
-          <TouchableOpacity
-            style={styles.periodButton}
-            onPress={() => handlePeriodPress("cycle_empty")}
-          >
-            <Text style={styles.periodButtonText}>Regl takvimini oluştur</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Su & hareket kartları */}
-      <View style={styles.utilityRow}>
-        {/* Su kartı */}
-        <View style={[styles.smallCard, styles.waterSmallCard]}>
-          <View pointerEvents="none" style={styles.waterCardGlow} />
-          <View pointerEvents="none" style={styles.waterCardWave} />
-          
-          <Text style={styles.smallCardTitle}>Su Hatırlatıcısı 💧</Text>
-          <Text style={styles.smallCardText}>
-            Bugünkü hedefin {WATER_GOAL} bardak su.
-          </Text>
-          <Text style={styles.smallCardText}>
-            Şu ana kadar {waterCount} bardak içtin.
-          </Text>
-
-          <View style={styles.waterRow}>
             <TouchableOpacity
-              style={styles.waterButton}
-              onPress={() => changeWaterCount(-1)}
+              style={[styles.reminderButton, styles.waterReminderButton]}
+              onPress={handleWaterReminder}
             >
-              <Text style={styles.waterButtonText}>-</Text>
-            </TouchableOpacity>
-
-            <Text style={styles.waterCountText}>{waterCount}</Text>
-
-            <TouchableOpacity
-              style={styles.waterButton}
-              onPress={() => changeWaterCount(1)}
-            >
-              <Text style={styles.waterButtonText}>+</Text>
+              <Text style={styles.reminderButtonText}>Su hatırlatıcısını aç</Text>
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity
-            style={[styles.reminderButton, styles.waterReminderButton]}
-            onPress={handleWaterReminder}
-          >
-            <Text style={styles.reminderButtonText}>Su hatırlatıcısını aç</Text>
-          </TouchableOpacity>
+          {/* Hareket kartı */}
+          <View style={[styles.smallCard, styles.moveSmallCard]}>
+            <View pointerEvents="none" style={styles.moveCardGlow} />
+            <View pointerEvents="none" style={styles.moveCardLeaf} />
+
+            <Text style={styles.smallCardTitle}>Hareket Et 🧘‍♀️</Text>
+            <Text style={styles.smallCardText}>
+              En az 30 dakikalık hafif hareket planla.
+            </Text>
+            <Text style={styles.smallCardText}>
+              Kısa yürüyüş, esneme ya da ev egzersizi olabilir.
+            </Text>
+
+            <TouchableOpacity
+              style={[styles.reminderButton, styles.moveReminderButton]}
+              onPress={handleDailyMoveReminder}
+            >
+              <Text style={styles.reminderButtonText}>Bana hatırlat</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Hareket kartı */}
-        <View style={[styles.smallCard, styles.moveSmallCard]}>
-          <View pointerEvents="none" style={styles.moveCardGlow} />
-          <View pointerEvents="none" style={styles.moveCardLeaf} />
+        {/* Nefes & Meditasyon kartı */}
+        <TouchableOpacity
+          style={styles.meditationCard}
+          onPress={handlePracticesPress}
+          activeOpacity={0.9}
+        >
+          <View style={styles.meditationTextWrap}>
+            <Text style={styles.meditationTitle}>
+              Nefes Egzersizi &{"\n"}Meditasyon
+            </Text>
 
-          <Text style={styles.smallCardTitle}>Hareket Et 🧘‍♀️</Text>
-          <Text style={styles.smallCardText}>
-            En az 30 dakikalık hafif hareket planla.
-          </Text>
-          <Text style={styles.smallCardText}>
-            Kısa yürüyüş, esneme ya da ev egzersizi olabilir.
-          </Text>
+            <Text style={styles.meditationDescription}>
+              Kısa bir mola ver, zihnini sakinleştir ve rahatla.
+            </Text>
 
-          <TouchableOpacity
-            style={[styles.reminderButton, styles.moveReminderButton]}
-            onPress={handleDailyMoveReminder}
-          >
-            <Text style={styles.reminderButtonText}>Bana hatırlat</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+            <Text style={styles.meditationLink}>Pratiklere git →</Text>
+          </View>
 
-      {/* Nefes & Meditasyon kartı */}
-      <TouchableOpacity
-        style={styles.meditationCard}
-        onPress={handlePracticesPress}
-        activeOpacity={0.9}
-      >
-        <View style={styles.meditationTextWrap}>
-          <Text style={styles.meditationTitle}>
-            Nefes Egzersizi &{"\n"}Meditasyon
-          </Text>
-
-          <Text style={styles.meditationDescription}>
-            Kısa bir mola ver, zihnini sakinleştir ve rahatla.
-          </Text>
-
-          <Text style={styles.meditationLink}>Pratiklere git →</Text>
-        </View>
-
-        <Image
-          source={require("../../assets/images/home/meditation-card.png")}
-          style={styles.meditationImage}
-          resizeMode="contain"
-        />
-      </TouchableOpacity>
+          <Image
+            source={require("../../assets/images/home/meditation-card.png")}
+            style={styles.meditationImage}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
 
         {/* Kategoriler */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Kategoriler</Text>
 
           <View style={styles.homeSearchBar}>
-  <Ionicons
-    name="search-outline"
-    size={20}
-    color="#8E8E93"
-    style={styles.homeSearchIcon}
-  />
+            <Ionicons
+              name="search-outline"
+              size={20}
+              color="#8E8E93"
+              style={styles.homeSearchIcon}
+            />
 
-  <TextInput
-    value={homeSearchQuery}
-    onChangeText={setHomeSearchQuery}
-    placeholder="İçerik ara"
-    placeholderTextColor="#8E8E93"
-    style={styles.homeSearchInput}
-    returnKeyType="search"
-    onSubmitEditing={handleHomeSearchSubmit}
-  />
+            <TextInput
+              value={homeSearchQuery}
+              onChangeText={setHomeSearchQuery}
+              placeholder="İçerik ara"
+              placeholderTextColor="#8E8E93"
+              style={styles.homeSearchInput}
+              returnKeyType="search"
+              onSubmitEditing={handleHomeSearchSubmit}
+            />
 
-  {homeSearchQuery.trim().length > 0 ? (
-    <Pressable
-      onPress={() => setHomeSearchQuery("")}
-      hitSlop={10}
-      style={styles.homeSearchClear}
-    >
-      <Ionicons name="close-circle" size={20} color="#B0B0B5" />
-    </Pressable>
-  ) : null}
-</View>
+            {homeSearchQuery.trim().length > 0 ? (
+              <Pressable
+                onPress={() => setHomeSearchQuery("")}
+                hitSlop={10}
+                style={styles.homeSearchClear}
+              >
+                <Ionicons name="close-circle" size={20} color="#B0B0B5" />
+              </Pressable>
+            ) : null}
+          </View>
 
           <ScrollView
             horizontal
@@ -2586,55 +2605,55 @@ export default function HomeScreen() {
             </View>
           ) : (
             latestRemote.map((article) => {
-  const fallbackImage =
-    article.categoryKey ? LATEST_CATEGORY_IMAGES[article.categoryKey] : null;
+              const fallbackImage =
+                article.categoryKey ? LATEST_CATEGORY_IMAGES[article.categoryKey] : null;
 
-  return (
-    <View key={article.id} style={styles.latestArticleCard}>
-      <Pressable
-        style={styles.latestArticlePressable}
-        onPress={() => handleLatestArticlePress(article)}
-      >
-        {fallbackImage ? (
-          <Image
-            source={fallbackImage}
-            style={styles.latestArticleThumb}
-            resizeMode="cover"
-          />
-        ) : null}
+              return (
+                <View key={article.id} style={styles.latestArticleCard}>
+                  <Pressable
+                    style={styles.latestArticlePressable}
+                    onPress={() => handleLatestArticlePress(article)}
+                  >
+                    {fallbackImage ? (
+                      <Image
+                        source={fallbackImage}
+                        style={styles.latestArticleThumb}
+                        resizeMode="cover"
+                      />
+                    ) : null}
 
-        <View style={styles.latestArticleContent}>
-          <View style={styles.latestArticleTop}>
-            <View style={styles.latestCategoryPill}>
-              <Text style={styles.latestCategoryPillText}>
-                {article.categoryLabel}
-              </Text>
-            </View>
+                    <View style={styles.latestArticleContent}>
+                      <View style={styles.latestArticleTop}>
+                        <View style={styles.latestCategoryPill}>
+                          <Text style={styles.latestCategoryPillText}>
+                            {article.categoryLabel}
+                          </Text>
+                        </View>
 
-            <Ionicons name="chevron-forward" size={18} color="#AE8B86" />
-          </View>
+                        <Ionicons name="chevron-forward" size={18} color="#AE8B86" />
+                      </View>
 
-          <Text
-            style={styles.latestArticleTitle}
-            numberOfLines={3}
-            ellipsizeMode="tail"
-          >
-            {article.title}
-          </Text>
-        </View>
-      </Pressable>
+                      <Text
+                        style={styles.latestArticleTitle}
+                        numberOfLines={3}
+                        ellipsizeMode="tail"
+                      >
+                        {article.title}
+                      </Text>
+                    </View>
+                  </Pressable>
 
-      <Pressable
-        onPress={() => toggleFavorite(article.id)}
-        style={styles.favoriteButtonModern}
-      >
-        <Text style={styles.favoriteIcon}>
-          {isFavorite(article.id) ? "💖" : "🤍"}
-        </Text>
-      </Pressable>
-    </View>
-  );
-})
+                  <Pressable
+                    onPress={() => toggleFavorite(article.id)}
+                    style={styles.favoriteButtonModern}
+                  >
+                    <Text style={styles.favoriteIcon}>
+                      {isFavorite(article.id) ? "💖" : "🤍"}
+                    </Text>
+                  </Pressable>
+                </View>
+              );
+            })
           )}
         </View>
 
@@ -2678,62 +2697,62 @@ export default function HomeScreen() {
             style={styles.weeklyHomeCard}
             onPress={() => handleWeeklyPress("music")}
             activeOpacity={0.9}
-        >
+          >
             <Image
               source={WEEKLY_FEATURED_IMAGES.music}
               style={styles.weeklyHomeBg}
               resizeMode="cover"
             />
 
-           <View style={styles.weeklyHomeSoftOverlay} />
+            <View style={styles.weeklyHomeSoftOverlay} />
 
-           <View style={[styles.weeklyHomeTextPanel, styles.weeklyHomeTextPanelRight]}>
-             <Text
-               style={[styles.weeklyHomeItemTitle, styles.weeklyHomeItemTitleMusic]}
-               numberOfLines={1}
-             >
-               Müzik
-             </Text>
+            <View style={[styles.weeklyHomeTextPanel, styles.weeklyHomeTextPanelRight]}>
+              <Text
+                style={[styles.weeklyHomeItemTitle, styles.weeklyHomeItemTitleMusic]}
+                numberOfLines={1}
+              >
+                Müzik
+              </Text>
 
-            <Text style={styles.weeklyHomeTeaser} numberOfLines={3}>
-              {musicWeeklyTeaser}
-            </Text>
-          </View>
+              <Text style={styles.weeklyHomeTeaser} numberOfLines={3}>
+                {musicWeeklyTeaser}
+              </Text>
+            </View>
 
-          <View style={[styles.weeklyHomeArrowLeft, styles.weeklyHomeArrowMusic]}>
-            <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
-          </View>
-        </TouchableOpacity>
+            <View style={[styles.weeklyHomeArrowLeft, styles.weeklyHomeArrowMusic]}>
+              <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+            </View>
+          </TouchableOpacity>
 
-        {/* Kitap - yazı solda */}
-        <TouchableOpacity
-          style={styles.weeklyHomeCard}
-          onPress={() => handleWeeklyPress("book")}
-          activeOpacity={0.9}
-        >
-          <Image
-            source={WEEKLY_FEATURED_IMAGES.book}
-            style={styles.weeklyHomeBg}
-            resizeMode="cover"
-          />
+          {/* Kitap - yazı solda */}
+          <TouchableOpacity
+            style={styles.weeklyHomeCard}
+            onPress={() => handleWeeklyPress("book")}
+            activeOpacity={0.9}
+          >
+            <Image
+              source={WEEKLY_FEATURED_IMAGES.book}
+              style={styles.weeklyHomeBg}
+              resizeMode="cover"
+            />
 
-          <View style={styles.weeklyHomeSoftOverlay} />
+            <View style={styles.weeklyHomeSoftOverlay} />
 
-          <View style={[styles.weeklyHomeTextPanel, styles.weeklyHomeTextPanelLeft]}>
-            <Text style={styles.weeklyHomeItemTitle} numberOfLines={2}>
-              Kitap
-            </Text>
+            <View style={[styles.weeklyHomeTextPanel, styles.weeklyHomeTextPanelLeft]}>
+              <Text style={styles.weeklyHomeItemTitle} numberOfLines={2}>
+                Kitap
+              </Text>
 
-            <Text style={styles.weeklyHomeTeaser} numberOfLines={3}>
-              {bookWeeklyTeaser}
-            </Text>
-          </View>
+              <Text style={styles.weeklyHomeTeaser} numberOfLines={3}>
+                {bookWeeklyTeaser}
+              </Text>
+            </View>
 
-          <View style={styles.weeklyHomeArrowRight}>
-            <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
-          </View>
-        </TouchableOpacity>
-      </View>
+            <View style={styles.weeklyHomeArrowRight}>
+              <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+            </View>
+          </TouchableOpacity>
+        </View>
 
         {/* Çiçekli minik not */}
         <View style={styles.flowerNote}>
@@ -2937,17 +2956,17 @@ const styles = StyleSheet.create({
   },
 
   appLogoCrop: {
-  width: 90,
-  height: 90,
-  alignSelf: "center",
-  marginTop: 8,
-  marginBottom: 14,
-},
+    width: 90,
+    height: 90,
+    alignSelf: "center",
+    marginTop: 8,
+    marginBottom: 14,
+  },
 
-appLogoCropImage: {
-  width: "100%",
-  height: "100%",
-},
+  appLogoCropImage: {
+    width: "100%",
+    height: "100%",
+  },
 
   appLogoCircle: {
     width: 110,
@@ -3553,14 +3572,14 @@ appLogoCropImage: {
 
   smallCard: {
     flex: 1,
-  padding: 12,
-  borderRadius: 16,
-  backgroundColor: "#FFFFFF",
-  borderWidth: 1,
-  borderColor: "#F2DFDA",
-  minHeight: 175,
-  overflow: "hidden",
-  position: "relative",
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#F2DFDA",
+    minHeight: 175,
+    overflow: "hidden",
+    position: "relative",
   },
 
   smallCardTitle: {
@@ -3895,307 +3914,307 @@ appLogoCropImage: {
   },
 
   meditationCard: {
-  marginTop: 14,
-  marginHorizontal: 16,
-  minHeight: 190,
-  borderRadius: 24,
-  backgroundColor: "#F1EEF8",
-  borderWidth: 1,
-  borderColor: "#DDD4F2",
-  paddingLeft: 18,
-  paddingTop: 18,
-  paddingBottom: 18,
-  paddingRight: 18,
-  position: "relative",
-  overflow: "hidden",
-},
+    marginTop: 14,
+    marginHorizontal: 16,
+    minHeight: 190,
+    borderRadius: 24,
+    backgroundColor: "#F1EEF8",
+    borderWidth: 1,
+    borderColor: "#DDD4F2",
+    paddingLeft: 18,
+    paddingTop: 18,
+    paddingBottom: 18,
+    paddingRight: 18,
+    position: "relative",
+    overflow: "hidden",
+  },
 
-meditationTextWrap: {
-  width: "52%",
-  zIndex: 2,
-},
+  meditationTextWrap: {
+    width: "52%",
+    zIndex: 2,
+  },
 
-meditationTitle: {
-  fontSize: 18,
-  fontWeight: "700",
-  color: "#6F55AA",
-  lineHeight: 25,
-  marginBottom: 10,
-},
+  meditationTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#6F55AA",
+    lineHeight: 25,
+    marginBottom: 10,
+  },
 
-meditationDescription: {
-  fontSize: 14,
-  lineHeight: 22,
-  color: "#5F5A6F",
-  marginBottom: 14,
-},
+  meditationDescription: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: "#5F5A6F",
+    marginBottom: 14,
+  },
 
-meditationLink: {
-  fontSize: 15,
-  fontWeight: "700",
-  color: "#6F55AA",
-},
+  meditationLink: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#6F55AA",
+  },
 
-meditationImage: {
-  position: "absolute",
-  right: 6,
-  bottom: 0,
-  width: 230,
-  height: 150,
-},
+  meditationImage: {
+    position: "absolute",
+    right: 6,
+    bottom: 0,
+    width: 230,
+    height: 150,
+  },
 
-featuredCalorieCard: {
-  height: 168,
-  borderRadius: 24,
-  overflow: "hidden",
-  marginTop: 8,
-  marginBottom: 6,
-  position: "relative",
-},
+  featuredCalorieCard: {
+    height: 168,
+    borderRadius: 24,
+    overflow: "hidden",
+    marginTop: 8,
+    marginBottom: 6,
+    position: "relative",
+  },
 
-featuredCalorieImage: {
-  width: "100%",
-  height: "100%",
-},
+  featuredCalorieImage: {
+    width: "100%",
+    height: "100%",
+  },
 
-featuredCalorieOverlay: {
-  ...StyleSheet.absoluteFillObject,
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "space-between",
-  paddingHorizontal: 18,
-  paddingVertical: 16,
-},
+  featuredCalorieOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
 
-featuredCalorieTextBox: {
-  width: "64%",
-  backgroundColor: "rgba(255,255,255,0.74)",
-  borderRadius: 18,
-  paddingHorizontal: 14,
-  paddingVertical: 12,
-},
+  featuredCalorieTextBox: {
+    width: "64%",
+    backgroundColor: "rgba(255,255,255,0.74)",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
 
-featuredCalorieTextWrap: {
-  width: "62%",
-},
+  featuredCalorieTextWrap: {
+    width: "62%",
+  },
 
-featuredCalorieTitle: {
-  fontSize: 24,
-  fontWeight: "800",
-  color: "#5A3732",
-  marginBottom: 6,
-},
+  featuredCalorieTitle: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#5A3732",
+    marginBottom: 6,
+  },
 
-featuredCalorieText: {
-  fontSize: 14,
-  lineHeight: 20,
-  color: "#4A2E2A",
-  fontWeight: "600",
-},
+  featuredCalorieText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#4A2E2A",
+    fontWeight: "600",
+  },
 
-featuredCalorieArrow: {
-  width: 42,
-  height: 42,
-  borderRadius: 21,
-  backgroundColor: "rgba(217,141,137,0.95)",
-  alignItems: "center",
-  justifyContent: "center",
-},
+  featuredCalorieArrow: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(217,141,137,0.95)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
-latestArticleCard: {
-  position: "relative",
-  marginBottom: 12,
-},
+  latestArticleCard: {
+    position: "relative",
+    marginBottom: 12,
+  },
 
-latestArticlePressable: {
-  flexDirection: "row",
-  alignItems: "stretch",
-  backgroundColor: "#FFFFFF",
-  borderWidth: 1,
-  borderColor: "#F2DFDA",
-  borderRadius: 20,
-  overflow: "hidden",
-},
+  latestArticlePressable: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#F2DFDA",
+    borderRadius: 20,
+    overflow: "hidden",
+  },
 
-latestArticleThumb: {
-  width: 112,
-  height: 112,
-},
+  latestArticleThumb: {
+    width: 112,
+    height: 112,
+  },
 
-latestArticleContent: {
-  flex: 1,
-  paddingLeft: 14,
-  paddingRight: 64,
-  justifyContent: "center",
-},
+  latestArticleContent: {
+    flex: 1,
+    paddingLeft: 14,
+    paddingRight: 64,
+    justifyContent: "center",
+  },
 
-latestArticleTop: {
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "space-between",
-  marginBottom: 8,
-},
+  latestArticleTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
 
-latestCategoryPill: {
-  paddingHorizontal: 10,
-  paddingVertical: 6,
-  borderRadius: 999,
-  backgroundColor: "#FCEEEE",
-},
+  latestCategoryPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#FCEEEE",
+  },
 
-latestCategoryPillText: {
-  fontSize: 12,
-  fontWeight: "700",
-  color: "#B0756F",
-},
+  latestCategoryPillText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#B0756F",
+  },
 
-latestArticleTitle: {
-  fontSize: 16,
-  lineHeight: 24,
-  fontWeight: "700",
-  color: "#4E342E",
-  marginTop: 8,
-},
+  latestArticleTitle: {
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: "700",
+    color: "#4E342E",
+    marginTop: 8,
+  },
 
-favoriteButtonModern: {
-  position: "absolute",
-  right: 12,
-  bottom: 10,
-  width: 34,
-  height: 34,
-  borderRadius: 17,
-  backgroundColor: "rgba(255,255,255,0.95)",
-  alignItems: "center",
-  justifyContent: "center",
-  borderWidth: 1,
-  borderColor: "#F2DFDA",
-},
+  favoriteButtonModern: {
+    position: "absolute",
+    right: 12,
+    bottom: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.95)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#F2DFDA",
+  },
 
-weeklyHomeSection: {
-  marginTop: 4,
-  marginBottom: 18,
-},
+  weeklyHomeSection: {
+    marginTop: 4,
+    marginBottom: 18,
+  },
 
-weeklyHomeHeader: {
-  marginBottom: 12,
-},
+  weeklyHomeHeader: {
+    marginBottom: 12,
+  },
 
-weeklyHomeTitle: {
-  fontSize: 23,
-  fontWeight: "800",
-  color: "#3F2724",
-  letterSpacing: -0.2,
-},
+  weeklyHomeTitle: {
+    fontSize: 23,
+    fontWeight: "800",
+    color: "#3F2724",
+    letterSpacing: -0.2,
+  },
 
-weeklyHomeCard: {
-  height: 178,
-  borderRadius: 24,
-  overflow: "hidden",
-  marginBottom: 14,
-  borderWidth: 1,
-  borderColor: "#F0CDC8",
-  backgroundColor: "#FFFFFF",
-  position: "relative",
-  shadowColor: "#D8A7A0",
-  shadowOpacity: 0.12,
-  shadowRadius: 16,
-  shadowOffset: { width: 0, height: 8 },
-  elevation: 3,
-},
+  weeklyHomeCard: {
+    height: 178,
+    borderRadius: 24,
+    overflow: "hidden",
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#F0CDC8",
+    backgroundColor: "#FFFFFF",
+    position: "relative",
+    shadowColor: "#D8A7A0",
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
+  },
 
-weeklyHomeBg: {
-  ...StyleSheet.absoluteFillObject,
-  width: "100%",
-  height: "100%",
-},
+  weeklyHomeBg: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
+  },
 
-weeklyHomeSoftOverlay: {
-  ...StyleSheet.absoluteFillObject,
-  backgroundColor: "rgba(255,255,255,0.04)",
-},
+  weeklyHomeSoftOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
 
-weeklyHomeTextPanel: {
-  position: "absolute",
-  top: 14,
-  bottom: 14,
-  width: "58%",
-  borderRadius: 20,
-  backgroundColor: "rgba(255,255,255,0.64)",
-  paddingHorizontal: 14,
-  paddingVertical: 12,
-  justifyContent: "center",
-},
+  weeklyHomeTextPanel: {
+    position: "absolute",
+    top: 14,
+    bottom: 14,
+    width: "58%",
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.64)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    justifyContent: "center",
+  },
 
-weeklyHomeTextPanelRight: {
-  right: 14,
-},
+  weeklyHomeTextPanelRight: {
+    right: 14,
+  },
 
-weeklyHomeTextPanelLeft: {
-  left: 14,
-},
+  weeklyHomeTextPanelLeft: {
+    left: 14,
+  },
 
-weeklyHomeArrowLeft: {
-  position: "absolute",
-  left: 18,
-  bottom: 18,
-  width: 42,
-  height: 42,
-  borderRadius: 21,
-  backgroundColor: "rgba(111,76,160,0.92)",
-  alignItems: "center",
-  justifyContent: "center",
-  shadowColor: "#6F4CA0",
-  shadowOpacity: 0.22,
-  shadowRadius: 9,
-  shadowOffset: { width: 0, height: 5 },
-  elevation: 4,
-},
+  weeklyHomeArrowLeft: {
+    position: "absolute",
+    left: 18,
+    bottom: 18,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(111,76,160,0.92)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#6F4CA0",
+    shadowOpacity: 0.22,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
+  },
 
-weeklyHomeArrowRight: {
-  position: "absolute",
-  right: 18,
-  bottom: 18,
-  width: 42,
-  height: 42,
-  borderRadius: 21,
-  backgroundColor: "rgba(111,76,160,0.92)",
-  alignItems: "center",
-  justifyContent: "center",
-  shadowColor: "#6F4CA0",
-  shadowOpacity: 0.22,
-  shadowRadius: 9,
-  shadowOffset: { width: 0, height: 5 },
-  elevation: 4,
-},
+  weeklyHomeArrowRight: {
+    position: "absolute",
+    right: 18,
+    bottom: 18,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(111,76,160,0.92)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#6F4CA0",
+    shadowOpacity: 0.22,
+    shadowRadius: 9,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
+  },
 
-weeklyHomeItemTitle: {
-  fontSize: 19,
-  lineHeight: 23,
-  fontWeight: "900",
-  color: "#3F246B",
-  marginBottom: 8,
-  textShadowColor: "rgba(255,255,255,0.55)",
-  textShadowOffset: { width: 0, height: 1 },
-  textShadowRadius: 2,
-},
+  weeklyHomeItemTitle: {
+    fontSize: 19,
+    lineHeight: 23,
+    fontWeight: "900",
+    color: "#3F246B",
+    marginBottom: 8,
+    textShadowColor: "rgba(255,255,255,0.55)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
 
-weeklyHomeItemTitleMusic: {
-  color: "#C94F65",
-},
+  weeklyHomeItemTitleMusic: {
+    color: "#C94F65",
+  },
 
-weeklyHomeTeaser: {
-  fontSize: 14,
-  lineHeight: 18,
-  color: "#2A1A18",
-  fontWeight: "800",
-  textShadowColor: "rgba(255,255,255,0.5)",
-  textShadowOffset: { width: 0, height: 1 },
-  textShadowRadius: 2,
-},
+  weeklyHomeTeaser: {
+    fontSize: 14,
+    lineHeight: 18,
+    color: "#2A1A18",
+    fontWeight: "800",
+    textShadowColor: "rgba(255,255,255,0.5)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
 
-weeklyHomeArrowMusic: {
-  backgroundColor: "rgba(217,94,114,0.92)",
-},
+  weeklyHomeArrowMusic: {
+    backgroundColor: "rgba(217,94,114,0.92)",
+  },
 
   reminderOverlay: {
     flex: 1,

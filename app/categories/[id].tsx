@@ -18,16 +18,19 @@ import {
 
 import { trackEvent } from "@/lib/analytics";
 import { useTrackScreenDuration } from "@/lib/useTrackScreenDuration";
-import { sbGetMany } from "../../lib/supabase";
+import {
+  resolveAssetUrl,
+  sbGetMany,
+  type StorageAssetLike,
+} from "../../lib/supabase";
 
-const CATEGORY_CACHE_KEY_PREFIX = "wellshe_category_cache_"; // (şimdilik kullanılmıyor ama dursun)
 const FAVORITES_KEY = "favorite_articles";
 const ASTRO_IDS_KEY = "wellshe_astro_notification_ids";
 
-const INITIAL_LIMIT = 5; // 👉 ilk açılışta gösterilecek içerik sayısı
-const LOAD_MORE_LIMIT = 10; // 👉 her "Daha fazla göster" tıklamasında gelecek ekstra içerik sayısı
+const INITIAL_LIMIT = 5;
+const LOAD_MORE_LIMIT = 10;
 
-// App route id -> DB category_id (articles.category_id sütunundaki değer)
+// App route id -> DB category_id
 const categoryIdToDbId: Record<string, string> = {
   healthyEating: "healthy_eating",
   home: "home_living",
@@ -52,7 +55,9 @@ const categoryLabels: Record<string, string> = {
   home: "Ev / Yaşam",
 };
 
-type AssetRow = { bucket: string | null; path: string | null };
+type AssetRow = StorageAssetLike & {
+  content_type?: string | null;
+};
 
 type RemoteItem = {
   article_id: string;
@@ -60,7 +65,7 @@ type RemoteItem = {
   title: string | null;
   summary: string | null;
   slug: string | null;
-  created_at?: string | null; // article_translations.created_at
+  created_at?: string | null;
   articles: {
     id: string;
     status: "draft" | "scheduled" | "published";
@@ -75,23 +80,10 @@ function enc(v: string) {
   return encodeURIComponent(v);
 }
 
-/**
- * ✅ Storage public URL üret
- * Not: app.json/app.config.js içinde:
- * EXPO_PUBLIC_SUPABASE_URL
- */
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
-
 function pickAsset(assets?: AssetRow | AssetRow[] | null): AssetRow | null {
   if (!assets) return null;
   if (Array.isArray(assets)) return assets[0] ?? null;
   return assets;
-}
-
-function getPublicAssetUrl(assets?: AssetRow | AssetRow[] | null) {
-  const a = pickAsset(assets);
-  if (!SUPABASE_URL || !a?.bucket || !a?.path) return null;
-  return `${SUPABASE_URL}/storage/v1/object/public/${a.bucket}/${a.path}`;
 }
 
 // 🔔 izin + android channel
@@ -141,7 +133,6 @@ function getNextSundayAt(hour: number, minute: number) {
 
   d.setHours(hour, minute, 0, 0);
 
-  // Bugün pazar ise ve saat geçtiyse bir sonraki pazara at
   if (daysUntilSunday === 0 && d.getTime() <= now.getTime()) {
     d.setDate(d.getDate() + 7);
     return d;
@@ -158,11 +149,7 @@ export default function CategoryScreen() {
   const id = Array.isArray(rawId) ? rawId[0] : rawId;
 
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
-
-  // 🔹 Artık tek liste var: şu ana kadar yüklenmiş içerikler
   const [items, setItems] = useState<RemoteItem[]>([]);
-
-  // 🔹 Pagination state
   const [offset, setOffset] = useState(0);
   const [loadingInitial, setLoadingInitial] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -187,20 +174,11 @@ export default function CategoryScreen() {
     [dbCategoryId, id, title]
   );
 
-  // ✅ Favoriler yükle
   useEffect(() => {
     (async () => {
       try {
-        console.log(
-          "[Category] favorites load START",
-          new Date().toISOString()
-        );
         const raw = await AsyncStorage.getItem(FAVORITES_KEY);
         setFavoriteIds(raw ? JSON.parse(raw) : []);
-        console.log(
-          "[Category] favorites load END",
-          new Date().toISOString()
-        );
       } catch (e) {
         console.log("Kategori favorileri yüklenirken hata:", e);
       }
@@ -222,7 +200,6 @@ export default function CategoryScreen() {
 
   const isFavorite = (articleId: string) => favoriteIds.includes(articleId);
 
-  // 🔹 Supabase’ten sayfa sayfa veri çeken fonksiyon
   const fetchPage = useCallback(
     async (options: { reset: boolean }) => {
       if (!id || !isValidCategory || !dbCategoryId) return;
@@ -232,28 +209,22 @@ export default function CategoryScreen() {
       const limit = reset ? INITIAL_LIMIT : LOAD_MORE_LIMIT;
       const currentOffset = reset ? 0 : offset;
 
-      console.log("[Category] fetchPage START", {
-        id,
-        dbCategoryId,
-        reset,
-        limit,
-        offset: currentOffset,
-        at: new Date().toISOString(),
-      });
-
       try {
         if (reset) {
           setLoadingInitial(true);
           setHasMore(true);
         } else {
-          if (loadingMore) return; // çifte tıklamaya karşı koruma
+          if (loadingMore) return;
           setLoadingMore(true);
         }
 
         const path =
           `/article_translations` +
           `?select=article_id,lang,title,summary,slug,created_at,` +
-          `articles!inner(id,category_id,status,created_at,cover_asset_id,assets(bucket,path))` +
+          `articles!inner(` +
+          `id,category_id,status,created_at,cover_asset_id,` +
+          `assets(bucket,path,public_url,storage_provider,storage_key,content_type)` +
+          `)` +
           `&lang=eq.tr` +
           `&articles.status=eq.published` +
           `&articles.category_id=eq.${enc(dbCategoryId)}` +
@@ -261,18 +232,8 @@ export default function CategoryScreen() {
           `&limit=${limit}` +
           `&offset=${currentOffset}`;
 
-        console.log("[Category] supabase query START", {
-          path,
-          at: new Date().toISOString(),
-        });
-
         const rows = await sbGetMany<RemoteItem>(path);
         const safeRows = rows ?? [];
-
-        console.log("[Category] supabase query END", {
-          count: safeRows.length,
-          at: new Date().toISOString(),
-        });
 
         if (reset) {
           setItems(safeRows);
@@ -282,7 +243,6 @@ export default function CategoryScreen() {
           setOffset((prev) => prev + safeRows.length);
         }
 
-        // gelen kayıt sayısı limit'ten küçükse devamı yoktur
         setHasMore(safeRows.length === limit);
       } catch (e: any) {
         console.log("Supabase kategori içerik hatası:", e?.message ?? e);
@@ -297,28 +257,16 @@ export default function CategoryScreen() {
         } else {
           setLoadingMore(false);
         }
-        console.log("[Category] fetchPage END", {
-          reset,
-          at: new Date().toISOString(),
-        });
       }
     },
     [dbCategoryId, id, isValidCategory, loadingMore, offset]
   );
 
-  // ✅ İlk giriş: sadece son 5 içerik
   useEffect(() => {
     if (!id || !isValidCategory) return;
-
-    console.log("[Category] mount -> fetchPage(reset=true)", {
-      id,
-      at: new Date().toISOString(),
-    });
-
     void fetchPage({ reset: true });
   }, [id, isValidCategory, fetchPage]);
 
-  // ✅ Ekrana her geri dönüşte: yine son 5’i taze çek (en güncel liste için)
   useFocusEffect(
     useCallback(() => {
       if (!id || !isValidCategory) return;
@@ -327,11 +275,6 @@ export default function CategoryScreen() {
         event_name: "screen_view",
         screen_name: "category",
         meta: analyticsMeta,
-      });
-
-      console.log("[Category] focus -> fetchPage(reset=true)", {
-        id,
-        at: new Date().toISOString(),
       });
 
       void fetchPage({ reset: true });
@@ -407,15 +350,6 @@ export default function CategoryScreen() {
   }
 
   const emptyState = !loadingRemote && items.length === 0;
-
-  console.log("[Category] render STATE", {
-    id,
-    total: items.length,
-    offset,
-    loadingInitial,
-    loadingMore,
-    hasMore,
-  });
 
   return (
     <>
@@ -511,7 +445,9 @@ export default function CategoryScreen() {
         )}
 
         {items.map((item) => {
-          const imageUrl = getPublicAssetUrl(item.articles?.assets ?? null);
+          const imageUrl = resolveAssetUrl(
+            pickAsset(item.articles?.assets ?? null)
+          );
 
           return (
             <View key={item.article_id} style={styles.articleCard}>
@@ -545,10 +481,7 @@ export default function CategoryScreen() {
 
         {hasMore && !loadingInitial && (
           <View style={styles.loadMoreBox}>
-            <Pressable
-              onPress={handleLoadMore}
-              style={styles.loadMoreButton}
-            >
+            <Pressable onPress={handleLoadMore} style={styles.loadMoreButton}>
               <Text style={styles.loadMoreText}>
                 {loadingMore ? "Yükleniyor..." : "Daha fazla göster"}
               </Text>
