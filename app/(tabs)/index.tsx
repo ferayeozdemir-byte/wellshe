@@ -393,7 +393,7 @@ const DEFAULT_MOVE_REMINDER_SETTINGS: MoveReminderSettings = {
   times: ["10:00", "13:30", "17:45"],
 };
 
-const WATER_INTERVAL_PRESETS = [30, 45, 60, 90, 120, 180, 240];
+const WATER_INTERVAL_PRESETS = [45, 60, 90, 120, 180, 240];
 const MAX_MOVE_REMINDER_TIMES = 8;
 
 // 🔁 Faz anahtarından tek cümlelik mini öneri (Home kartı için)
@@ -465,6 +465,15 @@ function normalizeClockInput(value: string): string | null {
   return null;
 }
 
+function formatClockForDisplay(value: string | null | undefined): string {
+  if (!value) return "";
+
+  const normalized = normalizeClockInput(String(value));
+  if (!normalized) return String(value);
+
+  return normalized.replace(":", ".");
+}
+
 function minutesFromClock(value: string): number | null {
   const normalized = normalizeClockInput(value);
   if (!normalized) return null;
@@ -516,8 +525,12 @@ function sanitizeMoveTimes(times: string[]): string[] {
 }
 
 function formatTimesForAlert(times: string[]) {
-  if (times.length <= 4) return times.join(", ");
-  return `${times.slice(0, 4).join(", ")} ve ${times.length - 4} saat daha`;
+  const displayTimes = times.map(formatClockForDisplay);
+
+  if (displayTimes.length <= 4) return displayTimes.join(", ");
+
+  return `${displayTimes.slice(0, 4).join(", ")} ve ${displayTimes.length - 4
+    } saat daha`;
 }
 
 function parseWaterReminderSettings(raw: string | null): WaterReminderSettings {
@@ -602,6 +615,7 @@ export default function HomeScreen() {
   }, []);
 
   const otaSuppressedThisSessionRef = useRef(false);
+  const hasLoadedLatestRemoteRef = useRef(false);
 
   useEffect(() => {
     const initSessionSuppression = async () => {
@@ -677,7 +691,9 @@ export default function HomeScreen() {
 
   const loadLatestRemote = useCallback(async () => {
     try {
-      setLatestRemoteLoading(true);
+      if (!hasLoadedLatestRemoteRef.current) {
+        setLatestRemoteLoading(true);
+      }
 
       const rows = await fetchLatestArticlesRemote(3);
       console.log("[Home latest] rows:", rows);
@@ -711,6 +727,7 @@ export default function HomeScreen() {
       });
 
       setLatestRemote(mapped);
+      hasLoadedLatestRemoteRef.current = true;
     } catch (e) {
       console.log("Home latest remote hata:", e);
       setLatestRemote([]);
@@ -731,10 +748,6 @@ export default function HomeScreen() {
       setFavoriteIds([]);
     }
   };
-
-  useEffect(() => {
-    void loadFavorites();
-  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -771,10 +784,10 @@ export default function HomeScreen() {
   const [waterReminderSettings, setWaterReminderSettings] =
     useState<WaterReminderSettings>(DEFAULT_WATER_REMINDER_SETTINGS);
   const [waterStartInput, setWaterStartInput] = useState(
-    DEFAULT_WATER_REMINDER_SETTINGS.startTime
+    formatClockForDisplay(DEFAULT_WATER_REMINDER_SETTINGS.startTime)
   );
   const [waterEndInput, setWaterEndInput] = useState(
-    DEFAULT_WATER_REMINDER_SETTINGS.endTime
+    formatClockForDisplay(DEFAULT_WATER_REMINDER_SETTINGS.endTime)
   );
   const [waterIntervalInput, setWaterIntervalInput] = useState(
     String(DEFAULT_WATER_REMINDER_SETTINGS.intervalMinutes)
@@ -783,9 +796,9 @@ export default function HomeScreen() {
   const [moveReminderSettings, setMoveReminderSettings] =
     useState<MoveReminderSettings>(DEFAULT_MOVE_REMINDER_SETTINGS);
   const [moveReminderTimesInput, setMoveReminderTimesInput] = useState<string[]>(
-    DEFAULT_MOVE_REMINDER_SETTINGS.times
+    DEFAULT_MOVE_REMINDER_SETTINGS.times.map(formatClockForDisplay)
   );
-  const [moveTimeInput, setMoveTimeInput] = useState("13:00");
+  const [moveTimeInput, setMoveTimeInput] = useState("13.00");
 
   const [announcements, setAnnouncements] = useState<HomeAnnouncement[]>([]);
   const [announcementsVisible, setAnnouncementsVisible] = useState(false);
@@ -813,10 +826,6 @@ export default function HomeScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    void loadAnnouncements();
-  }, [loadAnnouncements]);
-
   useFocusEffect(
     useCallback(() => {
       void loadAnnouncements();
@@ -834,20 +843,16 @@ export default function HomeScreen() {
       const moveSettings = parseMoveReminderSettings(moveRaw);
 
       setWaterReminderSettings(waterSettings);
-      setWaterStartInput(waterSettings.startTime);
-      setWaterEndInput(waterSettings.endTime);
+      setWaterStartInput(formatClockForDisplay(waterSettings.startTime));
+      setWaterEndInput(formatClockForDisplay(waterSettings.endTime));
       setWaterIntervalInput(String(waterSettings.intervalMinutes));
 
       setMoveReminderSettings(moveSettings);
-      setMoveReminderTimesInput(moveSettings.times);
+      setMoveReminderTimesInput(moveSettings.times.map(formatClockForDisplay));
     } catch (e) {
       console.log("Hatırlatıcı ayarları yüklenirken hata:", e);
     }
   }, []);
-
-  useEffect(() => {
-    void loadReminderSettings();
-  }, [loadReminderSettings]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1294,11 +1299,8 @@ export default function HomeScreen() {
     }, [loadPeriodData])
   );
 
-  // ✅ latest remote: ilk açılış + her dönüş
-  useEffect(() => {
-    void loadLatestRemote();
-  }, [loadLatestRemote]);
-
+  // ✅ latest remote: ekran her odaklandığında güncellenir.
+  // useFocusEffect ilk açılışta da çalıştığı için ayrıca useEffect ile ikinci kez fetch atmıyoruz.
   useFocusEffect(
     useCallback(() => {
       void loadLatestRemote();
@@ -1306,8 +1308,8 @@ export default function HomeScreen() {
   );
 
   const openWaterReminderSettings = () => {
-    setWaterStartInput(waterReminderSettings.startTime);
-    setWaterEndInput(waterReminderSettings.endTime);
+    setWaterStartInput(formatClockForDisplay(waterReminderSettings.startTime));
+    setWaterEndInput(formatClockForDisplay(waterReminderSettings.endTime));
     setWaterIntervalInput(String(waterReminderSettings.intervalMinutes));
 
     void trackEvent({
@@ -1327,14 +1329,14 @@ export default function HomeScreen() {
     const intervalMinutes = Number.parseInt(waterIntervalInput.trim(), 10);
 
     if (!startTime || !endTime) {
-      Alert.alert("Saat bilgisi eksik", "Lütfen başlangıç ve bitiş saatini 09:00 formatında gir.");
+      Alert.alert("Saat bilgisi eksik", "Lütfen başlangıç ve bitiş saatini 09.00 formatında gir.");
       return;
     }
 
-    if (!Number.isFinite(intervalMinutes) || intervalMinutes < 15 || intervalMinutes > 480) {
+    if (!Number.isFinite(intervalMinutes) || intervalMinutes < 45 || intervalMinutes > 480) {
       Alert.alert(
         "Aralık uygun değil",
-        "Su hatırlatma aralığını 15 ile 480 dakika arasında seçebilirsin."
+        "Su hatırlatma aralığını 45 ile 480 dakika arasında seçebilirsin."
       );
       return;
     }
@@ -1412,8 +1414,8 @@ export default function HomeScreen() {
       ]);
 
       setWaterReminderSettings(nextSettings);
-      setWaterStartInput(startTime);
-      setWaterEndInput(endTime);
+      setWaterStartInput(formatClockForDisplay(startTime));
+      setWaterEndInput(formatClockForDisplay(endTime));
       setWaterIntervalInput(String(intervalMinutes));
       setWaterReminderModalVisible(false);
 
@@ -1431,7 +1433,7 @@ export default function HomeScreen() {
 
       Alert.alert(
         "Tamamdır 💧",
-        `${startTime} - ${endTime} arasında ${intervalMinutes} dakikada bir su hatırlatıcısı alacaksın.`
+        `${formatClockForDisplay(startTime)} - ${formatClockForDisplay(endTime)} arasında ${intervalMinutes} dakikada bir su hatırlatıcısı alacaksın.`
       );
     } catch (e) {
       console.log("Su bildirimi planlanırken hata:", e);
@@ -1470,7 +1472,7 @@ export default function HomeScreen() {
   };
 
   const openMoveReminderSettings = () => {
-    setMoveReminderTimesInput(moveReminderSettings.times);
+    setMoveReminderTimesInput(moveReminderSettings.times.map(formatClockForDisplay));
 
     void trackEvent({
       event_name: "feature_used",
@@ -1487,16 +1489,21 @@ export default function HomeScreen() {
     const normalized = normalizeClockInput(moveTimeInput);
 
     if (!normalized) {
-      Alert.alert("Saat uygun değil", "Lütfen saati 09:00 formatında gir.");
+      Alert.alert("Saat uygun değil", "Lütfen saati 09.00 formatında gir.");
       return;
     }
 
-    if (moveReminderTimesInput.includes(normalized)) {
-      Alert.alert("Bu saat zaten ekli", `${normalized} zaten hatırlatıcı listende var.`);
+    const currentTimes = sanitizeMoveTimes(moveReminderTimesInput);
+
+    if (currentTimes.includes(normalized)) {
+      Alert.alert(
+        "Bu saat zaten ekli",
+        `${formatClockForDisplay(normalized)} zaten hatırlatıcı listende var.`
+      );
       return;
     }
 
-    if (moveReminderTimesInput.length >= MAX_MOVE_REMINDER_TIMES) {
+    if (currentTimes.length >= MAX_MOVE_REMINDER_TIMES) {
       Alert.alert(
         "Sınır doldu",
         `Günde en fazla ${MAX_MOVE_REMINDER_TIMES} hareket hatırlatıcısı ekleyebilirsin.`
@@ -1504,9 +1511,9 @@ export default function HomeScreen() {
       return;
     }
 
-    const next = sanitizeMoveTimes([...moveReminderTimesInput, normalized]);
-    setMoveReminderTimesInput(next);
-    setMoveTimeInput(normalized);
+    const next = sanitizeMoveTimes([...currentTimes, normalized]);
+    setMoveReminderTimesInput(next.map(formatClockForDisplay));
+    setMoveTimeInput(formatClockForDisplay(normalized));
   };
 
   const handleRemoveMoveReminderTime = (time: string) => {
@@ -1571,7 +1578,7 @@ export default function HomeScreen() {
       ]);
 
       setMoveReminderSettings(nextSettings);
-      setMoveReminderTimesInput(times);
+      setMoveReminderTimesInput(times.map(formatClockForDisplay));
       setMoveReminderModalVisible(false);
 
       void trackEvent({
@@ -1656,7 +1663,7 @@ export default function HomeScreen() {
 
       await AsyncStorage.setItem(ASTRO_IDS_KEY, JSON.stringify([id]));
 
-      Alert.alert("Tamam ✨", "Her Pazar 18:00'de astroloji bildirimi alacaksın.");
+      Alert.alert("Tamam ✨", "Her Pazar 18.00'da astroloji bildirimi alacaksın.");
     } catch (e) {
       console.log("Astroloji bildirimi planlanırken hata:", e);
       Alert.alert("Hata", "Astroloji bildirimi ayarlanırken bir sorun oluştu.");
@@ -2020,23 +2027,28 @@ export default function HomeScreen() {
                   onPress={() => setWaterReminderModalVisible(false)}
                   hitSlop={10}
                 >
-                  <Text style={styles.reminderCloseText}>Kapat</Text>
+                  <Text style={styles.reminderCloseText}>x</Text>
                 </Pressable>
               </View>
 
-              <View style={styles.reminderStatusBox}>
+              <Pressable
+                style={styles.reminderStatusBox}
+                onPress={
+                  waterReminderSettings.enabled
+                    ? handleDisableWaterReminder
+                    : handleSaveWaterReminderSettings
+                }
+              >
                 <Text style={styles.reminderStatusText}>
                   Hatırlatıcı {waterReminderSettings.enabled ? "açık" : "kapalı"}
                 </Text>
                 <View
                   style={[
                     styles.reminderStatusDot,
-                    waterReminderSettings.enabled
-                      ? styles.reminderStatusDotActive
-                      : null,
+                    waterReminderSettings.enabled ? styles.reminderStatusDotActive : null,
                   ]}
                 />
-              </View>
+              </Pressable>
 
               <View style={styles.reminderFormCard}>
                 <View style={styles.reminderInputRow}>
@@ -2047,7 +2059,7 @@ export default function HomeScreen() {
                   <TextInput
                     value={waterStartInput}
                     onChangeText={setWaterStartInput}
-                    placeholder="09:00"
+                    placeholder="09.00"
                     placeholderTextColor="#B99B95"
                     keyboardType="numbers-and-punctuation"
                     maxLength={5}
@@ -2063,7 +2075,7 @@ export default function HomeScreen() {
                   <TextInput
                     value={waterEndInput}
                     onChangeText={setWaterEndInput}
-                    placeholder="22:00"
+                    placeholder="22.00"
                     placeholderTextColor="#B99B95"
                     keyboardType="numbers-and-punctuation"
                     maxLength={5}
@@ -2129,15 +2141,6 @@ export default function HomeScreen() {
               >
                 <Text style={styles.reminderPrimaryButtonText}>Kaydet</Text>
               </Pressable>
-
-              <Pressable
-                style={styles.reminderSecondaryButton}
-                onPress={handleDisableWaterReminder}
-              >
-                <Text style={styles.reminderSecondaryButtonText}>
-                  Hatırlatıcıyı kapat
-                </Text>
-              </Pressable>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -2179,23 +2182,28 @@ export default function HomeScreen() {
                   onPress={() => setMoveReminderModalVisible(false)}
                   hitSlop={10}
                 >
-                  <Text style={styles.reminderCloseText}>Kapat</Text>
+                  <Text style={styles.reminderCloseText}>×</Text>
                 </Pressable>
               </View>
 
-              <View style={styles.reminderStatusBox}>
+              <Pressable
+                style={styles.reminderStatusBox}
+                onPress={
+                  moveReminderSettings.enabled
+                    ? handleDisableMoveReminder
+                    : handleSaveMoveReminderSettings
+                }
+              >
                 <Text style={styles.reminderStatusText}>
                   Hatırlatıcı {moveReminderSettings.enabled ? "açık" : "kapalı"}
                 </Text>
                 <View
                   style={[
                     styles.reminderStatusDot,
-                    moveReminderSettings.enabled
-                      ? styles.reminderStatusDotActive
-                      : null,
+                    moveReminderSettings.enabled ? styles.reminderStatusDotActive : null,
                   ]}
                 />
-              </View>
+              </Pressable>
 
               <View style={styles.reminderFormCard}>
                 <Text style={styles.reminderSectionLabel}>Seçtiğin saatler</Text>
@@ -2225,7 +2233,7 @@ export default function HomeScreen() {
                     <TextInput
                       value={moveTimeInput}
                       onChangeText={setMoveTimeInput}
-                      placeholder="15:20"
+                      placeholder="15.20"
                       placeholderTextColor="#B99B95"
                       keyboardType="numbers-and-punctuation"
                       maxLength={5}
@@ -2253,15 +2261,6 @@ export default function HomeScreen() {
               >
                 <Text style={styles.reminderPrimaryButtonText}>Kaydet</Text>
               </Pressable>
-
-              <Pressable
-                style={styles.reminderSecondaryButton}
-                onPress={handleDisableMoveReminder}
-              >
-                <Text style={styles.reminderSecondaryButtonText}>
-                  Hatırlatıcıyı kapat
-                </Text>
-              </Pressable>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -2282,6 +2281,7 @@ export default function HomeScreen() {
             source={require("../../assets/images/logo/lotus.png")}
             style={styles.appLogoCropImage}
             resizeMode="contain"
+            fadeDuration={0}
           />
         </View>
 
@@ -2308,6 +2308,7 @@ export default function HomeScreen() {
               source={require("../../assets/sponsors/global-solar.png")}
               style={styles.sponsorLogoInner}
               resizeMode="cover"
+              fadeDuration={0}
             />
           </View>
 
@@ -2502,6 +2503,7 @@ export default function HomeScreen() {
             source={require("../../assets/images/home/meditation-card.png")}
             style={styles.meditationImage}
             resizeMode="contain"
+            fadeDuration={0}
           />
         </TouchableOpacity>
 
@@ -2554,6 +2556,7 @@ export default function HomeScreen() {
                     source={CATEGORY_ICONS[cat.key]}
                     style={styles.menuIcon}
                     resizeMode="cover"
+                    fadeDuration={0}
                   />
                 </View>
 
@@ -2572,6 +2575,7 @@ export default function HomeScreen() {
               source={FEATURED_HOME_IMAGES.calorie}
               style={styles.featuredCalorieImage}
               resizeMode="cover"
+              fadeDuration={0}
             />
 
             <View style={styles.featuredCalorieOverlay}>
@@ -2619,6 +2623,7 @@ export default function HomeScreen() {
                         source={fallbackImage}
                         style={styles.latestArticleThumb}
                         resizeMode="cover"
+                        fadeDuration={0}
                       />
                     ) : null}
 
@@ -2673,6 +2678,7 @@ export default function HomeScreen() {
               source={WEEKLY_FEATURED_IMAGES.movie}
               style={styles.weeklyHomeBg}
               resizeMode="cover"
+              fadeDuration={0}
             />
 
             <View style={styles.weeklyHomeSoftOverlay} />
@@ -2702,6 +2708,7 @@ export default function HomeScreen() {
               source={WEEKLY_FEATURED_IMAGES.music}
               style={styles.weeklyHomeBg}
               resizeMode="cover"
+              fadeDuration={0}
             />
 
             <View style={styles.weeklyHomeSoftOverlay} />
@@ -2734,6 +2741,7 @@ export default function HomeScreen() {
               source={WEEKLY_FEATURED_IMAGES.book}
               style={styles.weeklyHomeBg}
               resizeMode="cover"
+              fadeDuration={0}
             />
 
             <View style={styles.weeklyHomeSoftOverlay} />
@@ -4282,9 +4290,11 @@ const styles = StyleSheet.create({
   },
 
   reminderCloseText: {
-    fontSize: 15,
-    fontWeight: "900",
-    color: "#B65E70",
+    color: "#B45F75",
+    fontSize: 30,
+    lineHeight: 32,
+    fontWeight: "800",
+    paddingHorizontal: 4,
   },
 
   reminderStatusBox: {
