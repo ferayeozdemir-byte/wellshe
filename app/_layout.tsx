@@ -22,17 +22,15 @@ Sentry.init({
 
 async function initMetaSdk() {
   try {
+    Settings.initializeSDK();
+
     Settings.setAutoLogAppEventsEnabled(true);
     Settings.setAdvertiserIDCollectionEnabled(true);
 
     if (Platform.OS === "ios") {
       const { status } = await requestTrackingPermissionsAsync();
-
-      Settings.initializeSDK();
-
       await Settings.setAdvertiserTrackingEnabled(status === "granted");
     } else {
-      Settings.initializeSDK();
       await Settings.setAdvertiserTrackingEnabled(true);
     }
 

@@ -3,7 +3,6 @@ package com.feraye.wellshe
 import android.app.Application
 import android.content.res.Configuration
 
-import com.facebook.FacebookSdk
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
@@ -40,8 +39,6 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
-
-    FacebookSdk.sdkInitialize(applicationContext)
 
     DefaultNewArchitectureEntryPoint.releaseLevel = try {
       ReleaseLevel.valueOf(BuildConfig.REACT_NATIVE_RELEASE_LEVEL.uppercase())
