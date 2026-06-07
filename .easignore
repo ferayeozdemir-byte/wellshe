@@ -5,3 +5,5 @@ android/sentry.properties
 .expo/
 .expo-shared/
 node_modules/
+
+supabase/
