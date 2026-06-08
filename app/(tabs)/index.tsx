@@ -33,6 +33,7 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AdBanner from "../../components/AdBanner";
 import { type CategoryId } from "../../data/content";
 import { weeklyArchive, type WeeklyItem } from "../../data/weekly";
@@ -497,7 +498,8 @@ function buildWaterReminderTimes(
   intervalMinutes: number
 ): string[] {
   const start = minutesFromClock(startTime);
-  const end = minutesFromClock(endTime);
+  const endRaw = minutesFromClock(endTime);
+  const end = endRaw === 0 ? 24 * 60 : endRaw;
 
   if (start == null || end == null || end <= start || intervalMinutes <= 0) {
     return [];
@@ -574,6 +576,7 @@ function parseMoveReminderSettings(raw: string | null): MoveReminderSettings {
 }
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
   const [showSponsor, setShowSponsor] = useState(true);
 
   // Home mount log
@@ -1336,7 +1339,7 @@ export default function HomeScreen() {
     if (!Number.isFinite(intervalMinutes) || intervalMinutes < 45 || intervalMinutes > 480) {
       Alert.alert(
         "Aralık uygun değil",
-        "Su hatırlatma aralığını 45 ile 480 dakika arasında seçebilirsin."
+        "Bildirimlerin çok sık gelmemesi için su hatırlatma aralığı en az 45 dakika olmalı."
       );
       return;
     }
@@ -1346,7 +1349,7 @@ export default function HomeScreen() {
     if (times.length === 0) {
       Alert.alert(
         "Saat aralığı uygun değil",
-        "Bitiş saati başlangıç saatinden sonra olmalı."
+        "Bitiş saati başlangıç saatinden sonra olmalı. Gece yarısına kadar hatırlatma almak istersen bitiş saatini 00.00 olarak yazabilirsin."
       );
       return;
     }
@@ -2007,7 +2010,12 @@ export default function HomeScreen() {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.reminderKeyboardScrollContent}
           >
-            <View style={styles.reminderModalCard}>
+            <View
+              style={[
+                styles.reminderModalCard,
+                { paddingBottom: Math.max(insets.bottom, 16) + 22 },
+              ]}
+            >
               <View style={styles.reminderModalHandle} />
 
               <View style={styles.reminderModalHeader}>
@@ -2032,22 +2040,40 @@ export default function HomeScreen() {
               </View>
 
               <Pressable
-                style={styles.reminderStatusBox}
+                style={[
+                  styles.reminderToggleCard,
+                  waterReminderSettings.enabled ? styles.reminderToggleCardActive : null,
+                ]}
                 onPress={
                   waterReminderSettings.enabled
                     ? handleDisableWaterReminder
                     : handleSaveWaterReminderSettings
                 }
               >
-                <Text style={styles.reminderStatusText}>
-                  Hatırlatıcı {waterReminderSettings.enabled ? "açık" : "kapalı"}
-                </Text>
+                <View style={styles.reminderToggleTextWrap}>
+                  <Text style={styles.reminderToggleTitle}>
+                    Hatırlatıcı {waterReminderSettings.enabled ? "açık" : "kapalı"}
+                  </Text>
+                  <Text style={styles.reminderToggleSubtitle}>
+                    {waterReminderSettings.enabled
+                      ? "Su molaları için bildirim alacaksın."
+                      : "Bildirim almak için buradan açabilirsin."}
+                  </Text>
+                </View>
+
                 <View
                   style={[
-                    styles.reminderStatusDot,
-                    waterReminderSettings.enabled ? styles.reminderStatusDotActive : null,
+                    styles.reminderSwitchTrack,
+                    waterReminderSettings.enabled ? styles.reminderSwitchTrackActive : null,
                   ]}
-                />
+                >
+                  <View
+                    style={[
+                      styles.reminderSwitchThumb,
+                      waterReminderSettings.enabled ? styles.reminderSwitchThumbActive : null,
+                    ]}
+                  />
+                </View>
               </Pressable>
 
               <View style={styles.reminderFormCard}>
@@ -2162,7 +2188,12 @@ export default function HomeScreen() {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.reminderKeyboardScrollContent}
           >
-            <View style={styles.reminderModalCard}>
+            <View
+              style={[
+                styles.reminderModalCard,
+                { paddingBottom: Math.max(insets.bottom, 16) + 22 },
+              ]}
+            >
               <View style={styles.reminderModalHandle} />
 
               <View style={styles.reminderModalHeader}>
@@ -2187,22 +2218,40 @@ export default function HomeScreen() {
               </View>
 
               <Pressable
-                style={styles.reminderStatusBox}
+                style={[
+                  styles.reminderToggleCard,
+                  moveReminderSettings.enabled ? styles.reminderToggleCardActive : null,
+                ]}
                 onPress={
                   moveReminderSettings.enabled
                     ? handleDisableMoveReminder
                     : handleSaveMoveReminderSettings
                 }
               >
-                <Text style={styles.reminderStatusText}>
-                  Hatırlatıcı {moveReminderSettings.enabled ? "açık" : "kapalı"}
-                </Text>
+                <View style={styles.reminderToggleTextWrap}>
+                  <Text style={styles.reminderToggleTitle}>
+                    Hatırlatıcı {moveReminderSettings.enabled ? "açık" : "kapalı"}
+                  </Text>
+                  <Text style={styles.reminderToggleSubtitle}>
+                    {moveReminderSettings.enabled
+                      ? "Seçtiğin saatlerde hareket bildirimi alacaksın."
+                      : "Bildirim almak için buradan açabilirsin."}
+                  </Text>
+                </View>
+
                 <View
                   style={[
-                    styles.reminderStatusDot,
-                    moveReminderSettings.enabled ? styles.reminderStatusDotActive : null,
+                    styles.reminderSwitchTrack,
+                    moveReminderSettings.enabled ? styles.reminderSwitchTrackActive : null,
                   ]}
-                />
+                >
+                  <View
+                    style={[
+                      styles.reminderSwitchThumb,
+                      moveReminderSettings.enabled ? styles.reminderSwitchThumbActive : null,
+                    ]}
+                  />
+                </View>
               </Pressable>
 
               <View style={styles.reminderFormCard}>
@@ -4297,36 +4346,69 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
 
-  reminderStatusBox: {
-    minHeight: 46,
-    borderRadius: 14,
+  reminderToggleCard: {
+    marginBottom: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#F0DAD6",
-    backgroundColor: "#FFF8F6",
-    paddingHorizontal: 12,
+    borderColor: "#E9D8D5",
+    backgroundColor: "#FFF9F7",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
+    gap: 14,
   },
 
-  reminderStatusText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#5A4744",
+  reminderToggleCardActive: {
+    borderColor: "#CE6B7C",
+    backgroundColor: "#FFF3F6",
   },
 
-  reminderStatusDot: {
-    width: 38,
-    height: 22,
+  reminderToggleTextWrap: {
+    flex: 1,
+  },
+
+  reminderToggleTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#3B2D31",
+  },
+
+  reminderToggleSubtitle: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#8A7470",
+  },
+
+  reminderSwitchTrack: {
+    width: 62,
+    height: 34,
     borderRadius: 999,
-    backgroundColor: "#D8C7C2",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
+    backgroundColor: "#D8CAC6",
+    padding: 3,
+    justifyContent: "center",
   },
 
-  reminderStatusDotActive: {
+  reminderSwitchTrackActive: {
     backgroundColor: "#CE6B7C",
+  },
+
+  reminderSwitchThumb: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+
+  reminderSwitchThumbActive: {
+    transform: [{ translateX: 28 }],
   },
 
   reminderFormCard: {

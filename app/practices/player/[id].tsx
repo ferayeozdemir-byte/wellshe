@@ -19,11 +19,14 @@ import {
   ImageBackground,
   PanResponder,
   Pressable,
-  SafeAreaView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import AdBanner from "../../../components/AdBanner";
 
 import { resolveAssetUrl, sbGetMany } from "../../../lib/supabase";
@@ -118,6 +121,7 @@ function PracticePlayerBannerAd() {
 }
 
 export default function PracticePlayerScreen() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; kind?: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -337,11 +341,11 @@ export default function PracticePlayerScreen() {
 
         const rows = await sbGetMany<PracticeRow>(
           `/breathing_practices` +
-            `?select=` +
-            `id,status,kind,title,technique_title,summary,cover_asset_id,audio_asset_id,default_duration_seconds,sort_order,accent_color,is_featured,slug,` +
-            `audio_asset:assets!breathing_practices_audio_asset_id_fkey(bucket,path,content_type,storage_provider,storage_key,public_url)` +
-            `&id=eq.${encodeURIComponent(id)}` +
-            `&limit=1`
+          `?select=` +
+          `id,status,kind,title,technique_title,summary,cover_asset_id,audio_asset_id,default_duration_seconds,sort_order,accent_color,is_featured,slug,` +
+          `audio_asset:assets!breathing_practices_audio_asset_id_fkey(bucket,path,content_type,storage_provider,storage_key,public_url)` +
+          `&id=eq.${encodeURIComponent(id)}` +
+          `&limit=1`
         );
 
         const item = rows?.[0] ?? null;
@@ -391,7 +395,7 @@ export default function PracticePlayerScreen() {
     if (soundRef.current) {
       const currentSound = soundRef.current;
       soundRef.current = null;
-      currentSound.unloadAsync().catch(() => {});
+      currentSound.unloadAsync().catch(() => { });
     }
 
     return () => {
@@ -402,7 +406,7 @@ export default function PracticePlayerScreen() {
       if (soundRef.current) {
         const currentSound = soundRef.current;
         soundRef.current = null;
-        currentSound.unloadAsync().catch(() => {});
+        currentSound.unloadAsync().catch(() => { });
       }
     };
   }, [audioUrl, updateListeningTime]);
@@ -419,7 +423,7 @@ export default function PracticePlayerScreen() {
       if (soundRef.current) {
         try {
           await soundRef.current.setPositionAsync(nextMs);
-        } catch {}
+        } catch { }
       }
     },
     [durationMs]
@@ -496,7 +500,7 @@ export default function PracticePlayerScreen() {
       );
 
       if (activeAudioUrlRef.current !== targetAudioUrl) {
-        await sound.unloadAsync().catch(() => {});
+        await sound.unloadAsync().catch(() => { });
         return null;
       }
 
@@ -632,12 +636,12 @@ export default function PracticePlayerScreen() {
       trackPracticeFeature("practice_seek", {
         seek_delta_seconds: Math.round(deltaMs / 1000),
       });
-    } catch {}
+    } catch { }
   }
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <Stack.Screen options={{ headerShown: false }} />
         <ImageBackground
           source={playerBackground}
@@ -660,7 +664,7 @@ export default function PracticePlayerScreen() {
 
   if (err || !practice) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <Stack.Screen options={{ headerShown: false }} />
         <ImageBackground
           source={playerBackground}
@@ -695,7 +699,7 @@ export default function PracticePlayerScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <Stack.Screen options={{ headerShown: false }} />
       <ImageBackground
         source={playerBackground}
@@ -719,7 +723,12 @@ export default function PracticePlayerScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.content}>
+          <View
+            style={[
+              styles.content,
+              { paddingBottom: Math.max(insets.bottom, 12) + 10 },
+            ]}
+          >
             <View style={styles.heroWrap}>
               <View
                 style={[styles.heroGlow, { backgroundColor: theme.centerGlow }]}
@@ -881,7 +890,7 @@ const styles = StyleSheet.create({
 
   topBar: {
     paddingHorizontal: 18,
-    paddingTop: 8,
+    paddingTop: 12,
     alignItems: "flex-start",
   },
 
@@ -898,7 +907,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     paddingHorizontal: 22,
-    paddingTop: 8,
+    paddingTop: 14,
     paddingBottom: 24,
   },
 
@@ -919,7 +928,7 @@ const styles = StyleSheet.create({
   heroWrap: {
     width: 252,
     height: 252,
-    marginTop: 18,
+    marginTop: 20,
     marginBottom: 8,
     alignItems: "center",
     justifyContent: "center",
@@ -1036,8 +1045,9 @@ const styles = StyleSheet.create({
 
   adContainer: {
     width: "100%",
-    marginTop: 22,
+    marginTop: "auto",
     paddingHorizontal: 8,
+    paddingBottom: 2,
     alignItems: "center",
   },
 });
