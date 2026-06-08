@@ -150,7 +150,6 @@ export default function CategoryScreen() {
 
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [items, setItems] = useState<RemoteItem[]>([]);
-  const [offset, setOffset] = useState(0);
   const [loadingInitial, setLoadingInitial] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -201,20 +200,19 @@ export default function CategoryScreen() {
   const isFavorite = (articleId: string) => favoriteIds.includes(articleId);
 
   const fetchPage = useCallback(
-    async (options: { reset: boolean }) => {
+    async (options: { reset: boolean; nextOffset?: number }) => {
       if (!id || !isValidCategory || !dbCategoryId) return;
 
-      const { reset } = options;
+      const { reset, nextOffset } = options;
 
       const limit = reset ? INITIAL_LIMIT : LOAD_MORE_LIMIT;
-      const currentOffset = reset ? 0 : offset;
+      const currentOffset = reset ? 0 : nextOffset ?? 0;
 
       try {
         if (reset) {
           setLoadingInitial(true);
           setHasMore(true);
         } else {
-          if (loadingMore) return;
           setLoadingMore(true);
         }
 
@@ -237,10 +235,8 @@ export default function CategoryScreen() {
 
         if (reset) {
           setItems(safeRows);
-          setOffset(safeRows.length);
         } else {
           setItems((prev) => [...prev, ...safeRows]);
-          setOffset((prev) => prev + safeRows.length);
         }
 
         setHasMore(safeRows.length === limit);
@@ -248,7 +244,6 @@ export default function CategoryScreen() {
         console.log("Supabase kategori içerik hatası:", e?.message ?? e);
         if (reset) {
           setItems([]);
-          setOffset(0);
           setHasMore(false);
         }
       } finally {
@@ -259,7 +254,7 @@ export default function CategoryScreen() {
         }
       }
     },
-    [dbCategoryId, id, isValidCategory, loadingMore, offset]
+    [dbCategoryId, id, isValidCategory]
   );
 
   useEffect(() => {
@@ -324,14 +319,14 @@ export default function CategoryScreen() {
         feature_name: "category_load_more_click",
         meta: {
           ...analyticsMeta,
-          current_offset: offset,
+          current_offset: items.length,
           loaded_count: items.length,
         },
       });
 
-      void fetchPage({ reset: false });
+      void fetchPage({ reset: false, nextOffset: items.length });
     }
-  }, [analyticsMeta, fetchPage, hasMore, items.length, loadingMore, offset]);
+  }, [analyticsMeta, fetchPage, hasMore, items.length, loadingMore]);
 
   if (!id) {
     return (
