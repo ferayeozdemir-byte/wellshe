@@ -5,7 +5,7 @@
     "slug": "wellshe",
     "version": "1.0.6",
     "orientation": "portrait",
-    "icon": "./assets/images/logo/wellshe_icon_1024.png",
+    "icon": "./assets/images/logo/wellshe_adaptive_foreground.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/images/splash_big.png",
@@ -32,7 +32,7 @@
   "ios": {
     "bundleIdentifier": "com.feraye.wellshe",
     "supportsTablet": true,
-    "buildNumber": "16",
+    "buildNumber": "17",
     "config": {
       "googleMobileAdsAppId": "ca-app-pub-9133000462142645~7819586434"
     },
