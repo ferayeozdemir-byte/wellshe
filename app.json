@@ -32,7 +32,7 @@
   "ios": {
     "bundleIdentifier": "com.feraye.wellshe",
     "supportsTablet": true,
-    "buildNumber": "17",
+    "buildNumber": "18",
     "config": {
       "googleMobileAdsAppId": "ca-app-pub-9133000462142645~7819586434"
     },

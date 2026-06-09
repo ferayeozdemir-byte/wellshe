@@ -39,7 +39,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>17</string>
+	<string>18</string>
 	<key>GADApplicationIdentifier</key>
 	<string>ca-app-pub-9133000462142645~7819586434</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
@@ -59,6 +59,8 @@
 	<string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Allow $(PRODUCT_NAME) to access your microphone</string>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>WellShe, reklam performansını ölçmek ve daha alakalı reklam deneyimi sunmak için cihaz tanımlayıcısını kullanabilir.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
