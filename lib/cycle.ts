@@ -125,6 +125,83 @@ function diffInDaysLocal(from: Date, to: Date): number {
   return Math.floor((b - a) / (1000 * 60 * 60 * 24));
 }
 
+/**
+ * Regl kayıtlarını tarih açısından güvenli, sıralı ve tekrarsız hale getirir.
+ * Mevcut kullanıcı verisini değiştirmez; yalnızca hesaplama için normalize eder.
+ */
+export function normalizePeriodLogs(logs: PeriodLog[]): PeriodLog[] {
+  const seen = new Set<string>();
+
+  return [...logs]
+    .filter((log) => {
+      const startDate = log?.startDate;
+      if (!startDate || !isValidISODate(startDate) || seen.has(startDate)) {
+        return false;
+      }
+
+      seen.add(startDate);
+      return true;
+    })
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+}
+
+/**
+ * Period ekranında halihazırda kullanılan kişisel döngü öğrenme mantığının
+ * ortak karşılığıdır. En az 3 regl başlangıcı ve 2 geçerli tamamlanmış aralık
+ * olmadan kullanıcının başlangıç ayarını değiştirmez.
+ */
+export function getLearnedCycleLength(
+  logs: PeriodLog[],
+  fallback: number
+): number {
+  const normalized = normalizePeriodLogs(logs);
+
+  if (normalized.length < 3) return fallback;
+
+  const intervals: number[] = [];
+
+  for (let i = 1; i < normalized.length; i++) {
+    const prev = fromISODate(normalized[i - 1].startDate);
+    const curr = fromISODate(normalized[i].startDate);
+    const diff = diffInDaysLocal(prev, curr);
+
+    // Period ekranındaki mevcut davranışla aynı sınırlar.
+    if (diff >= 15 && diff <= 60) {
+      intervals.push(diff);
+    }
+  }
+
+  if (intervals.length < 2) return fallback;
+
+  const recentIntervals = intervals.slice(-6);
+  const average =
+    recentIntervals.reduce((sum, value) => sum + value, 0) /
+    recentIntervals.length;
+
+  return Math.round(average);
+}
+
+/**
+ * Ham kullanıcı ayarını, mevcut öğrenilmiş döngü süresiyle birleştirir.
+ * periodLength aynen korunur; yalnızca averageCycleLength hesaplama için
+ * kişiselleştirilebilir.
+ */
+export function getEffectivePeriodSettings(
+  settings: PeriodSettings | null,
+  logs: PeriodLog[],
+  fallbackCycleLength = 28
+): PeriodSettings | null {
+  if (!settings) return null;
+
+  return {
+    ...settings,
+    averageCycleLength: getLearnedCycleLength(
+      logs,
+      settings.averageCycleLength || fallbackCycleLength
+    ),
+  };
+}
+
 export function getNextPeriodStart(
   logs: PeriodLog[],
   settings: PeriodSettings | null
