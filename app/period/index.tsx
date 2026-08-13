@@ -34,6 +34,7 @@ type DateObject = { dateString: string };
 
 type PeriodLog = {
   startDate: string; // ISO (YYYY-MM-DD)
+  endDate?: string; // Gerçek regl bitişi; yoksa periodLength ile tahmin edilir
 };
 
 type PeriodSettings = {
@@ -180,6 +181,65 @@ function normalizeLogs(logs: PeriodLog[]) {
   return unique;
 }
 
+function isValidLocalISODate(iso?: string | null): iso is string {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  const date = fromLocalISODate(iso);
+  return !Number.isNaN(date.getTime()) && toLocalISODate(date) === iso;
+}
+
+function getRecordedPeriodEndIso(log: PeriodLog): string | null {
+  if (!isValidLocalISODate(log.endDate)) return null;
+  if (log.endDate < log.startDate) return null;
+  return log.endDate;
+}
+
+function getPeriodDisplayEndIso(
+  log: PeriodLog,
+  fallbackPeriodLength: number
+): string {
+  const recordedEnd = getRecordedPeriodEndIso(log);
+  if (recordedEnd) return recordedEnd;
+
+  const end = fromLocalISODate(log.startDate);
+  end.setDate(end.getDate() + Math.max(fallbackPeriodLength, 1) - 1);
+  return toLocalISODate(end);
+}
+
+function getRecordedPeriodLength(log: PeriodLog): number | null {
+  const recordedEnd = getRecordedPeriodEndIso(log);
+  if (!recordedEnd) return null;
+
+  return (
+    differenceInDays(
+      fromLocalISODate(recordedEnd),
+      fromLocalISODate(log.startDate)
+    ) + 1
+  );
+}
+
+function replacePeriodEndLog(
+  logs: PeriodLog[],
+  startDate: string,
+  endDate: string
+): PeriodLog[] {
+  return normalizeLogs(logs).map((log) =>
+    log.startDate === startDate ? { ...log, endDate } : log
+  );
+}
+
+function clearPeriodEndLog(
+  logs: PeriodLog[],
+  startDate: string
+): PeriodLog[] {
+  return normalizeLogs(logs).map((log) => {
+    if (log.startDate !== startDate) return log;
+
+    const nextLog: PeriodLog = { ...log };
+    delete nextLog.endDate;
+    return nextLog;
+  });
+}
+
 const MIN_TYPICAL_CYCLE_DAYS = 21;
 
 type PeriodStartConflict =
@@ -223,9 +283,11 @@ function findPeriodLogForDate(
   for (let i = normalized.length - 1; i >= 0; i--) {
     const log = normalized[i];
     const start = fromLocalISODate(log.startDate);
+    const end = fromLocalISODate(getPeriodDisplayEndIso(log, periodLength));
     const dayOffset = differenceInDays(target, start);
+    const untilEnd = differenceInDays(end, target);
 
-    if (dayOffset >= 0 && dayOffset < Math.max(periodLength, 1)) {
+    if (dayOffset >= 0 && untilEnd >= 0) {
       return log;
     }
   }
@@ -297,7 +359,14 @@ function getPeriodStartConflict(
       };
     }
 
-    if (signedDiff > 0 && signedDiff < Math.max(periodLength, 1)) {
+    const existingEnd = fromLocalISODate(
+      getPeriodDisplayEndIso(log, periodLength)
+    );
+
+    if (
+      signedDiff > 0 &&
+      differenceInDays(existingEnd, target) >= 0
+    ) {
       return {
         kind: "inside_existing_period",
         relatedStartDate: log.startDate,
@@ -330,8 +399,8 @@ function replaceLatestPeriodLog(logs: PeriodLog[], startDate: string): PeriodLog
     return [{ startDate }];
   }
 
-  const logsWithoutLatest = normalized.slice(0, -1);
-  return normalizeLogs([...logsWithoutLatest, { startDate }]);
+  const latest = normalized[normalized.length - 1];
+  return replacePeriodStartLog(normalized, latest.startDate, startDate);
 }
 
 function getLearnedCycleLength(logs: PeriodLog[], fallback: number): number {
@@ -431,7 +500,10 @@ function getMarkedDates(
   // Geçmiş regl günleri
   normalizedLogs.forEach((log) => {
     const start = fromLocalISODate(log.startDate);
-    for (let i = 0; i < periodLength; i++) {
+    const end = fromLocalISODate(getPeriodDisplayEndIso(log, periodLength));
+    const markedDayCount = Math.max(differenceInDays(end, start) + 1, 1);
+
+    for (let i = 0; i < markedDayCount; i++) {
       const d = new Date(start);
       d.setDate(d.getDate() + i);
       const key = toLocalISODate(d);
@@ -589,6 +661,9 @@ export default function PeriodScreen() {
   const [editingPeriodStart, setEditingPeriodStart] = useState<string | null>(
     null
   );
+  const [editingPeriodEndStart, setEditingPeriodEndStart] = useState<
+    string | null
+  >(null);
 
   // 🧪 Debug panel state
   const [debugVisible, setDebugVisible] = useState(false);
@@ -646,9 +721,28 @@ export default function PeriodScreen() {
     [normalizedLogs, settings]
   );
 
+  const lastPeriodLog =
+    normalizedLogs.length > 0
+      ? normalizedLogs[normalizedLogs.length - 1]
+      : null;
+
+  const recordedLastPeriodLength = lastPeriodLog
+    ? getRecordedPeriodLength(lastPeriodLog)
+    : null;
+
+  const phaseSettings = useMemo(() => {
+    if (!effectiveSettings) return null;
+    if (!recordedLastPeriodLength) return effectiveSettings;
+
+    return {
+      ...effectiveSettings,
+      periodLength: recordedLastPeriodLength,
+    };
+  }, [effectiveSettings, recordedLastPeriodLength]);
+
   const phaseInfo = useMemo(
-    () => getCyclePhaseInfo(normalizedLogs, effectiveSettings),
-    [normalizedLogs, effectiveSettings]
+    () => getCyclePhaseInfo(normalizedLogs, phaseSettings),
+    [normalizedLogs, phaseSettings]
   );
 
   const lateState = useMemo(
@@ -656,10 +750,10 @@ export default function PeriodScreen() {
     [normalizedLogs, settings, todayKey]
   );
 
-  const lastStartIso =
-    normalizedLogs.length > 0
-      ? normalizedLogs[normalizedLogs.length - 1].startDate
-      : null;
+  const lastStartIso = lastPeriodLog?.startDate ?? null;
+  const lastEndIso = lastPeriodLog
+    ? getRecordedPeriodEndIso(lastPeriodLog)
+    : null;
 
   const lastStartTR = lastStartIso ? formatLocalISODateTR(lastStartIso) : null;
   const nextPeriodTR = nextPeriod ? formatLocalISODateTR(nextPeriod) : null;
@@ -686,16 +780,27 @@ export default function PeriodScreen() {
   const isCurrentlyInPeriod =
     cycleDay !== null &&
     cycleDay >= 1 &&
-    cycleDay <=
-    (effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength);
+    lastStartIso !== null &&
+    (lastEndIso
+      ? todayKey >= lastStartIso && todayKey <= lastEndIso
+      : cycleDay <=
+        (effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength));
 
-  const heroEyebrow = isCurrentlyInPeriod
-    ? "ŞU ANDA"
-    : lateState.isLate
-      ? "BEKLENEN TARİH GEÇTİ"
-      : "TAHMİNİ BİR SONRAKİ REGLİNE";
+  const didPeriodEndToday = lastEndIso === todayKey;
+
+  const heroEyebrow = didPeriodEndToday
+    ? "BUGÜN"
+    : isCurrentlyInPeriod
+      ? "ŞU ANDA"
+      : lateState.isLate
+        ? "BEKLENEN TARİH GEÇTİ"
+        : "TAHMİNİ BİR SONRAKİ REGLİNE";
 
   const heroMainText = useMemo(() => {
+    if (didPeriodEndToday) {
+      return "Reglin bugün bitti";
+    }
+
     if (isCurrentlyInPeriod && cycleDay) {
       return `Reglin ${cycleDay}. günü`;
     }
@@ -720,13 +825,30 @@ export default function PeriodScreen() {
     }
 
     return `${daysUntil} gün kaldı`;
-  }, [isCurrentlyInPeriod, cycleDay, nextPeriod, todayKey, lateState]);
+  }, [
+    didPeriodEndToday,
+    isCurrentlyInPeriod,
+    cycleDay,
+    nextPeriod,
+    todayKey,
+    lateState,
+  ]);
 
-  const settingsSummaryLine = `${learnedCycleLength} günlük döngü · ${effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength
-    } gün regl süresi`;
+  const hasPersonalizedCycleLength =
+    !!settings && learnedCycleLength !== settings.averageCycleLength;
+
+  const settingsSummaryLine = hasPersonalizedCycleLength
+    ? `Kayıtlarına göre ort. döngü: ${learnedCycleLength} gün`
+    : `Başlangıç döngü süren: ${learnedCycleLength} gün`;
+
+  const settingsPeriodLengthLine = `Ort. regl süresi: ${
+    effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength
+  } gün`;
 
   const settingsLastPeriodLine = lastStartTR
-    ? `Son regl: ${lastStartTR}`
+    ? recordedLastPeriodLength
+      ? `Son regl: ${lastStartTR} · ${recordedLastPeriodLength} gün sürdü`
+      : `Son regl: ${lastStartTR}`
     : "Son regl tarihi henüz yok";
 
   const buildDebugDump = async () => {
@@ -1064,6 +1186,67 @@ export default function PeriodScreen() {
     });
   };
 
+  const persistPeriodLogsOnly = async (nextLogs: PeriodLog[]) => {
+    const normalized = normalizeLogs(nextLogs);
+    setLogs(normalized);
+    await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(normalized));
+  };
+
+  const savePeriodEnd = async (
+    startDate: string,
+    endDate: string
+  ) => {
+    const nextLogs = replacePeriodEndLog(logs, startDate, endDate);
+    setEditingPeriodEndStart(null);
+    await persistPeriodLogsOnly(nextLogs);
+
+    Alert.alert(
+      "Bitiş kaydedildi",
+      `${formatLocalISODateTR(startDate)} tarihinde başlayan reglinin bitişini ${formatLocalISODateTR(endDate)} olarak kaydettin. Sonraki regl başlangıcı tahmini bu kayıttan etkilenmez.`
+    );
+  };
+
+  const clearRecordedPeriodEnd = async (startDate: string) => {
+    const nextLogs = clearPeriodEndLog(logs, startDate);
+    setEditingPeriodEndStart(null);
+    await persistPeriodLogsOnly(nextLogs);
+
+    Alert.alert(
+      "Bitiş kaldırıldı",
+      `${formatLocalISODateTR(startDate)} tarihinde başlayan regl için bitiş kaydını kaldırdın. Regl devam ediyor olarak kabul edilecek; sonraki regl başlangıcı tahmini değişmez.`
+    );
+  };
+
+  const handlePeriodEndCandidate = async (
+    startDate: string,
+    endDate: string
+  ) => {
+    if (endDate < startDate) {
+      Alert.alert(
+        "Bitiş başlangıçtan önce olamaz",
+        `Regl başlangıcın ${formatLocalISODateTR(startDate)}. Bitiş günü aynı gün veya daha sonraki bir gün olmalı.`
+      );
+      return;
+    }
+
+    const normalized = normalizeLogs(logs);
+    const currentIndex = normalized.findIndex(
+      (log) => log.startDate === startDate
+    );
+    const nextLog =
+      currentIndex >= 0 ? normalized[currentIndex + 1] ?? null : null;
+
+    if (nextLog && endDate >= nextLog.startDate) {
+      Alert.alert(
+        "Bitiş sonraki regl kaydıyla çakışıyor",
+        `Sonraki regl başlangıcın ${formatLocalISODateTR(nextLog.startDate)}. Bitiş günü bu tarihten önce olmalı.`
+      );
+      return;
+    }
+
+    await savePeriodEnd(startDate, endDate);
+  };
+
   const saveNewPeriodStart = async (
     startDate: string,
     nextSettings: PeriodSettings,
@@ -1167,6 +1350,21 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
     nextStartDate: string,
     nextSettings: PeriodSettings
   ) => {
+    const originalLog = normalizeLogs(logs).find(
+      (log) => log.startDate === originalStartDate
+    );
+    const recordedEnd = originalLog
+      ? getRecordedPeriodEndIso(originalLog)
+      : null;
+
+    if (recordedEnd && nextStartDate > recordedEnd) {
+      Alert.alert(
+        "Başlangıç bitişten sonra olamaz",
+        `Bu regl kaydının bitişi ${formatLocalISODateTR(recordedEnd)} olarak kayıtlı. Başlangıcı bu tarihten sonraya taşıyamazsın.`
+      );
+      return;
+    }
+
     const conflict = getPeriodStartConflict(
       logs,
       nextStartDate,
@@ -1231,6 +1429,9 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
     if (editingPeriodStart === startDate) {
       setEditingPeriodStart(null);
     }
+    if (editingPeriodEndStart === startDate) {
+      setEditingPeriodEndStart(null);
+    }
 
     setInputLastStartDate(
       latestStart ? formatLocalISODateTR(latestStart) : ""
@@ -1244,33 +1445,65 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
   };
 
   const handleExistingPeriodPress = (
-    startDate: string,
+    periodLog: PeriodLog,
     nextSettings: PeriodSettings
   ) => {
-    const start = fromLocalISODate(startDate);
-    const end = new Date(start);
-    end.setDate(
-      end.getDate() + Math.max(nextSettings.periodLength, 1) - 1
+    const startDate = periodLog.startDate;
+    const recordedEnd = getRecordedPeriodEndIso(periodLog);
+    const displayEnd = getPeriodDisplayEndIso(
+      periodLog,
+      nextSettings.periodLength
     );
-
     const rangeText =
-      nextSettings.periodLength > 1
-        ? `${formatLocalISODateTR(startDate)} – ${formatLocalISODateTR(
-            toLocalISODate(end)
-          )}`
+      displayEnd !== startDate
+        ? `${formatLocalISODateTR(startDate)} – ${formatLocalISODateTR(displayEnd)}`
         : formatLocalISODateTR(startDate);
+
+    const description = recordedEnd
+      ? `${rangeText} olarak kaydettiğin regl dönemi. Başlangıç veya bitiş gününü değiştirebilir ya da kaydı silebilirsin.`
+      : `${rangeText} aralığı, ${formatLocalISODateTR(startDate)} başlangıcına ve ${nextSettings.periodLength} günlük ortalama regl sürene göre gösteriliyor. Bitiş gününü kaydedersen bu dönem gerçek sürene göre işaretlenir.`;
 
     Alert.alert(
       "Regl kaydını düzenle",
-      `${rangeText} olarak görünen bu dönem, ${formatLocalISODateTR(startDate)} başlangıç kaydından hesaplanıyor. Ne yapmak istersin?`,
+      description,
       [
         { text: "Vazgeç", style: "cancel" },
         {
           text: "Başlangıcı değiştir",
           onPress: () => {
+            setEditingPeriodEndStart(null);
             setEditingPeriodStart(startDate);
           },
         },
+        {
+          text: recordedEnd ? "Bitişi değiştir" : "Bitişi kaydet",
+          onPress: () => {
+            setEditingPeriodStart(null);
+            setEditingPeriodEndStart(startDate);
+          },
+        },
+        ...(recordedEnd
+          ? [
+              {
+                text: "Reglim devam ediyor",
+                onPress: () => {
+                  Alert.alert(
+                    "Bitiş kaydı kaldırılsın mı?",
+                    `${formatLocalISODateTR(recordedEnd)} olarak kaydettiğin bitiş kaldırılacak. Bu regl dönemi yeniden devam ediyor kabul edilecek.`,
+                    [
+                      { text: "Vazgeç", style: "cancel" },
+                      {
+                        text: "Bitişi kaldır",
+                        onPress: () => {
+                          void clearRecordedPeriodEnd(startDate);
+                        },
+                      },
+                    ]
+                  );
+                },
+              },
+            ]
+          : []),
         {
           text: "Kaydı sil",
           style: "destructive",
@@ -1356,7 +1589,20 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
 
     if (isoFromInput && logs.length > 0) {
       const normalizedLogs = normalizeLogs(logs);
-      const latestStart = normalizedLogs[normalizedLogs.length - 1]?.startDate;
+      const latestLog = normalizedLogs[normalizedLogs.length - 1];
+      const latestStart = latestLog?.startDate;
+      const latestRecordedEnd = latestLog
+        ? getRecordedPeriodEndIso(latestLog)
+        : null;
+
+      if (latestRecordedEnd && isoFromInput > latestRecordedEnd) {
+        Alert.alert(
+          "Başlangıç bitişten sonra olamaz",
+          `Son regl bitişin ${formatLocalISODateTR(latestRecordedEnd)} olarak kayıtlı. Başlangıç tarihi bu tarihten sonra olamaz.`
+        );
+        return;
+      }
+
       const conflict = getPeriodStartConflict(
         normalizedLogs,
         isoFromInput,
@@ -1423,6 +1669,37 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
     }
   };
 
+  const handleTodayEnded = async () => {
+    try {
+      const latestLog =
+        normalizedLogs.length > 0
+          ? normalizedLogs[normalizedLogs.length - 1]
+          : null;
+
+      if (!latestLog) {
+        Alert.alert(
+          "Önce regl başlangıcını kaydet",
+          "Regl bitişini kaydedebilmek için önce başlangıç gününü kaydetmelisin."
+        );
+        return;
+      }
+
+      const recordedEnd = getRecordedPeriodEndIso(latestLog);
+      if (recordedEnd) {
+        Alert.alert(
+          "Bitiş zaten kayıtlı",
+          `Bu regl dönemi için bitiş ${formatLocalISODateTR(recordedEnd)} olarak kayıtlı. Değiştirmek için takvimde kırmızı bir güne dokun.`
+        );
+        return;
+      }
+
+      await handlePeriodEndCandidate(latestLog.startDate, todayKey);
+    } catch (e) {
+      console.log("handleTodayEnded save error:", e);
+      Alert.alert("Hata", "Regl bitişi kaydedilemedi. Lütfen tekrar dene.");
+    }
+  };
+
   const handleCalendarDayPress = async (day: DateObject) => {
     try {
       const pickedIso = day.dateString;
@@ -1446,6 +1723,11 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
         return;
       }
 
+      if (editingPeriodEndStart) {
+        await handlePeriodEndCandidate(editingPeriodEndStart, pickedIso);
+        return;
+      }
+
       const existingPeriod = findPeriodLogForDate(
         logs,
         pickedIso,
@@ -1453,7 +1735,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
       );
 
       if (existingPeriod) {
-        handleExistingPeriodPress(existingPeriod.startDate, effSettings);
+        handleExistingPeriodPress(existingPeriod, effSettings);
         return;
       }
 
@@ -1572,6 +1854,19 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
                   Başlangıç değeri olarak 28 gün kullanılır. Uygulama,
                   kaydettiğin regl başlangıçlarına göre zamanla döngünü öğrenir.
                 </Text>
+
+                {hasPersonalizedCycleLength ? (
+                  <Text
+                    style={[
+                      styles.modalDescription,
+                      { marginTop: 8, color: COLORS.primaryDark },
+                    ]}
+                  >
+                    Kayıtlarına göre ortalama döngün şu anda {learnedCycleLength}
+                    gün. Aşağıdaki {settings?.averageCycleLength} günlük değer
+                    başlangıç ayarın olarak saklanır.
+                  </Text>
+                ) : null}
 
                 <Text style={styles.inputLabel}>Son regl başlangıcın</Text>
                 <TextInput
@@ -1694,9 +1989,34 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
               </View>
             </View>
 
-            <Pressable style={styles.primaryButton} onPress={handleTodayStarted}>
-              <Text style={styles.primaryButtonText}>Bugün regl oldum</Text>
-            </Pressable>
+            {!isCurrentlyInPeriod && !didPeriodEndToday ? (
+              <Pressable style={styles.primaryButton} onPress={handleTodayStarted}>
+                <Text style={styles.primaryButtonText}>Bugün regl oldum</Text>
+              </Pressable>
+            ) : null}
+
+            {lastPeriodLog && lastEndIso ? (
+              <Pressable
+                style={styles.periodEndButton}
+                onPress={() =>
+                  handleExistingPeriodPress(
+                    lastPeriodLog,
+                    effectiveSettings ?? DEFAULT_SETTINGS
+                  )
+                }
+              >
+                <Text style={styles.periodEndButtonText}>
+                  Regl bitişi: {formatLocalISODateTR(lastEndIso)} · Düzenle
+                </Text>
+              </Pressable>
+            ) : isCurrentlyInPeriod && lastPeriodLog ? (
+              <Pressable
+                style={styles.periodEndButton}
+                onPress={handleTodayEnded}
+              >
+                <Text style={styles.periodEndButtonText}>Bugün reglim bitti</Text>
+              </Pressable>
+            ) : null}
 
             <Pressable
               style={styles.linkButton}
@@ -1750,9 +2070,9 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
               label="Sonraki regl"
               value={nextPeriodTR ?? "Hesaplanamıyor"}
             />
-            <MetricCard label="Döngü" value={`${learnedCycleLength} gün`} />
+            <MetricCard label="Ort. döngü" value={`${learnedCycleLength} gün`} />
             <MetricCard
-              label="Regl süresi"
+              label="Ort. regl süresi"
               value={`${effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength
                 } gün`}
             />
@@ -1785,8 +2105,8 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
                   günlerin burada işaretlenir.
                 </Text>
                 <Text style={styles.calendarEditHint}>
-                  Bir regl kaydını düzeltmek veya silmek için kırmızı bir güne
-                  dokun.
+                  Başlangıç veya bitiş gününü düzeltmek ya da kaydı silmek için
+                  kırmızı bir güne dokun.
                 </Text>
               </View>
 
@@ -1803,6 +2123,21 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
                 </Text>
                 <Pressable
                   onPress={() => setEditingPeriodStart(null)}
+                  hitSlop={8}
+                >
+                  <Text style={styles.calendarEditModeCancel}>Vazgeç</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {editingPeriodEndStart ? (
+              <View style={styles.calendarEditMode}>
+                <Text style={styles.calendarEditModeText}>
+                  {formatLocalISODateTR(editingPeriodEndStart)} başlangıçlı
+                  reglinin bitişini seçiyorsun. Bittiği güne dokun.
+                </Text>
+                <Pressable
+                  onPress={() => setEditingPeriodEndStart(null)}
                   hitSlop={8}
                 >
                   <Text style={styles.calendarEditModeCancel}>Vazgeç</Text>
@@ -1916,6 +2251,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
               <View style={styles.settingsTextWrap}>
                 <Text style={styles.cardTitle}>Döngü ayarların</Text>
                 <Text style={styles.settingsMeta}>{settingsSummaryLine}</Text>
+                <Text style={styles.settingsMeta}>{settingsPeriodLengthLine}</Text>
                 <Text style={styles.settingsMeta}>{settingsLastPeriodLine}</Text>
               </View>
             </View>
@@ -2144,6 +2480,23 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "800",
+  },
+
+  periodEndButton: {
+    marginTop: 10,
+    paddingVertical: 12,
+    borderRadius: 16,
+    backgroundColor: "#FFF9F8",
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  periodEndButtonText: {
+    color: COLORS.primaryDark,
+    fontSize: 16,
+    fontWeight: "700",
   },
 
   linkButton: {

@@ -88,6 +88,7 @@ type PeriodSettings = {
 
 type PeriodLog = {
   startDate: string; // "2025-11-10" gibi (ISO)
+  endDate?: string; // gerçek regl bitişi varsa ISO
 };
 
 type WaterReminderSettings = {
@@ -1061,6 +1062,7 @@ export default function HomeScreen() {
     phaseTitle: string;
     phaseDescription: string;
     nextPeriodDateText: string;
+    statusLabel: string;
     statusText: string;
     cycleDayLabel: string;
   } | null>(null);
@@ -1226,13 +1228,12 @@ export default function HomeScreen() {
         return;
       }
 
-      const phase = getCyclePhaseInfo(normalizedLogs, settings);
-      const nextIso = getNextPeriodStart(normalizedLogs, settings);
-      const nextPeriodDateText = nextIso
-        ? formatDateTRFromISO(nextIso)
-        : "Henüz hesaplanamıyor";
-
-      const lastStartIso = normalizedLogs[normalizedLogs.length - 1].startDate;
+      const lastLog = normalizedLogs[normalizedLogs.length - 1];
+      const lastStartIso = lastLog.startDate;
+      const lastEndIso =
+        typeof lastLog.endDate === "string" && lastLog.endDate >= lastStartIso
+          ? lastLog.endDate
+          : null;
 
       const dayMs = 24 * 60 * 60 * 1000;
 
@@ -1245,6 +1246,26 @@ export default function HomeScreen() {
       const todayIso = toISODate(new Date());
       const todayDate = parseIsoDate(todayIso);
       const lastStartDate = parseIsoDate(lastStartIso);
+      const lastEndDate = lastEndIso ? parseIsoDate(lastEndIso) : null;
+
+      const recordedPeriodLength = lastEndDate
+        ? Math.max(
+            Math.floor(
+              (lastEndDate.getTime() - lastStartDate.getTime()) / dayMs
+            ) + 1,
+            1
+          )
+        : null;
+
+      const phaseSettings: PeriodSettings = recordedPeriodLength
+        ? { ...settings, periodLength: recordedPeriodLength }
+        : settings;
+
+      const phase = getCyclePhaseInfo(normalizedLogs, phaseSettings);
+      const nextIso = getNextPeriodStart(normalizedLogs, settings);
+      const nextPeriodDateText = nextIso
+        ? formatDateTRFromISO(nextIso)
+        : "Henüz hesaplanamıyor";
       const nextDate = nextIso ? parseIsoDate(nextIso) : null;
 
       const cycleDayRaw =
@@ -1253,9 +1274,19 @@ export default function HomeScreen() {
       const cycleDay =
         Number.isFinite(cycleDayRaw) && cycleDayRaw > 0 ? cycleDayRaw : 1;
 
+      const isCurrentlyInPeriod = lastEndIso
+        ? todayIso >= lastStartIso && todayIso <= lastEndIso
+        : cycleDay <= settings.periodLength;
+      const didPeriodEndToday = lastEndIso === todayIso;
+
+      let statusLabel = "TAHMİNİ BİR SONRAKİ REGLİNE";
       let statusText = "Takvimini güncel tut";
 
-      if (cycleDay <= settings.periodLength) {
+      if (didPeriodEndToday) {
+        statusLabel = "BUGÜN";
+        statusText = "Reglin bugün bitti";
+      } else if (isCurrentlyInPeriod) {
+        statusLabel = "ŞU ANDA";
         statusText = `Reglin ${cycleDay}. günü`;
       } else if (nextDate) {
         const daysUntilNextPeriod = Math.round(
@@ -1267,6 +1298,7 @@ export default function HomeScreen() {
         } else if (daysUntilNextPeriod === 0) {
           statusText = "Bugün başlayabilir";
         } else {
+          statusLabel = "BEKLENEN TARİH GEÇTİ";
           statusText = `${Math.abs(daysUntilNextPeriod)} gün gecikme`;
         }
       }
@@ -1287,6 +1319,7 @@ export default function HomeScreen() {
         phaseTitle: phase.title,
         phaseDescription: phase.description,
         nextPeriodDateText,
+        statusLabel,
         statusText,
         cycleDayLabel,
       });
@@ -2441,7 +2474,7 @@ export default function HomeScreen() {
                 </View>
 
                 <Text style={styles.periodStatusLabel}>
-                  TAHMİNİ BİR SONRAKİ REGLİNE
+                  {cycleInfo.statusLabel}
                 </Text>
                 <Text style={styles.periodStatusValue}>{cycleInfo.statusText}</Text>
 
