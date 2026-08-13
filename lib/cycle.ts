@@ -206,12 +206,14 @@ export function getNextPeriodStart(
   logs: PeriodLog[],
   settings: PeriodSettings | null
 ): string | null {
-  if (!settings || logs.length === 0) return null;
-  const last = logs[logs.length - 1];
-  if (!isValidISODate(last.startDate)) return null;
+  const normalizedLogs = normalizePeriodLogs(logs);
+  const effectiveSettings = getEffectivePeriodSettings(settings, normalizedLogs);
 
+  if (!effectiveSettings || normalizedLogs.length === 0) return null;
+
+  const last = normalizedLogs[normalizedLogs.length - 1];
   const lastDate = fromISODate(last.startDate);
-  lastDate.setDate(lastDate.getDate() + settings.averageCycleLength);
+  lastDate.setDate(lastDate.getDate() + effectiveSettings.averageCycleLength);
   return toISODate(lastDate);
 }
 
@@ -219,19 +221,18 @@ export function getOvulationInfo(
   logs: PeriodLog[],
   settings: PeriodSettings | null
 ): OvulationInfo {
-  if (!settings || logs.length === 0) {
+  const normalizedLogs = normalizePeriodLogs(logs);
+  const effectiveSettings = getEffectivePeriodSettings(settings, normalizedLogs);
+
+  if (!effectiveSettings || normalizedLogs.length === 0) {
     return { ovulationDate: null, windowStart: null, windowEnd: null };
   }
 
-  const last = logs[logs.length - 1];
-  if (!isValidISODate(last.startDate)) {
-    return { ovulationDate: null, windowStart: null, windowEnd: null };
-  }
-
+  const last = normalizedLogs[normalizedLogs.length - 1];
   const lastStart = fromISODate(last.startDate);
 
-  // sizin mantığınız: cycleLen/2
-  const mid = Math.round(settings.averageCycleLength / 2);
+  // Mevcut ovülasyon hesabı bu aşamada özellikle değiştirilmedi.
+  const mid = Math.round(effectiveSettings.averageCycleLength / 2);
 
   const ovulation = new Date(lastStart);
   ovulation.setDate(ovulation.getDate() + mid);
@@ -254,7 +255,10 @@ export function getCyclePhaseInfo(
   settings: PeriodSettings | null,
   now: Date = new Date()
 ): CyclePhaseInfo {
-  if (!settings || logs.length === 0) {
+  const normalizedLogs = normalizePeriodLogs(logs);
+  const effectiveSettings = getEffectivePeriodSettings(settings, normalizedLogs);
+
+  if (!effectiveSettings || normalizedLogs.length === 0) {
     return {
       key: "unknown",
       title: "Faz hesaplanamıyor",
@@ -265,21 +269,12 @@ export function getCyclePhaseInfo(
     };
   }
 
-  const last = logs[logs.length - 1];
-  if (!isValidISODate(last.startDate)) {
-    return {
-      key: "unknown",
-      title: "Faz hesaplanamıyor",
-      description: "Son regl başlangıç tarihi geçersiz görünüyor.",
-      suggestion: "Lütfen son regl başlangıcını yeniden seç.",
-    };
-  }
-
+  const last = normalizedLogs[normalizedLogs.length - 1];
   const lastStartDate = fromISODate(last.startDate);
   const diffDays = diffInDaysLocal(lastStartDate, now);
 
-  const cycleLen = settings.averageCycleLength;
-  const periodLen = settings.periodLength;
+  const cycleLen = effectiveSettings.averageCycleLength;
+  const periodLen = effectiveSettings.periodLength;
   const mid = Math.round(cycleLen / 2);
 
   // çok uç değerler
