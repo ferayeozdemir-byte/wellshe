@@ -180,38 +180,143 @@ function normalizeLogs(logs: PeriodLog[]) {
   return unique;
 }
 
-/**
- * Yeni gerçek döngü başladığında kullanılır.
- * Yakın tarihte yanlışlıkla oluşturulmuş son kaydı düzeltir,
- * aksi halde yeni döngü olarak ekler.
- */
-function upsertPeriodLog(
-  logs: PeriodLog[],
-  startDate: string,
-  periodLength: number
-): PeriodLog[] {
-  const normalized = normalizeLogs(logs);
-  const target = fromLocalISODate(startDate);
-  const replaceWindow = Math.max(periodLength, 5);
+const MIN_TYPICAL_CYCLE_DAYS = 21;
 
-  let replaced = false;
-
-  const nextLogs = normalized.map((log) => {
-    const diff = Math.abs(
-      differenceInDays(fromLocalISODate(log.startDate), target)
-    );
-    if (!replaced && diff <= replaceWindow) {
-      replaced = true;
-      return { startDate };
+type PeriodStartConflict =
+  | {
+      kind: "duplicate";
+      relatedStartDate: string;
+      distanceDays: 0;
     }
-    return log;
-  });
+  | {
+      kind: "inside_existing_period";
+      relatedStartDate: string;
+      distanceDays: number;
+    }
+  | {
+      kind: "too_close";
+      relatedStartDate: string;
+      distanceDays: number;
+    };
 
-  if (!replaced) {
-    nextLogs.push({ startDate });
+/**
+ * Takvimden yeni bir regl başlangıcı eklerken mevcut geçmişi korur.
+ * Bu fonksiyon hiçbir eski kaydı silmez veya başka tarihle değiştirmez.
+ */
+function addPeriodStartLog(logs: PeriodLog[], startDate: string): PeriodLog[] {
+  return normalizeLogs([...logs, { startDate }]);
+}
+
+/**
+ * Takvimde dokunulan gün gerçek bir regl kaydının boyanan aralığına denk geliyor mu?
+ * Bir regl kaydı `startDate` ile temsil edildiği için, dönemin herhangi bir kırmızı
+ * gününe dokunulduğunda ilgili başlangıç kaydını buluruz.
+ */
+function findPeriodLogForDate(
+  logs: PeriodLog[],
+  dateIso: string,
+  periodLength: number
+): PeriodLog | null {
+  const normalized = normalizeLogs(logs);
+  const target = fromLocalISODate(dateIso);
+
+  for (let i = normalized.length - 1; i >= 0; i--) {
+    const log = normalized[i];
+    const start = fromLocalISODate(log.startDate);
+    const dayOffset = differenceInDays(target, start);
+
+    if (dayOffset >= 0 && dayOffset < Math.max(periodLength, 1)) {
+      return log;
+    }
   }
 
-  return normalizeLogs(nextLogs);
+  return null;
+}
+
+/**
+ * Belirli bir regl başlangıcını düzenler. Diğer tüm geçmiş kayıtlar aynen korunur.
+ */
+function replacePeriodStartLog(
+  logs: PeriodLog[],
+  originalStartDate: string,
+  nextStartDate: string
+): PeriodLog[] {
+  const normalized = normalizeLogs(logs);
+  const replaced = normalized.map((log) =>
+    log.startDate === originalStartDate
+      ? { ...log, startDate: nextStartDate }
+      : log
+  );
+
+  return normalizeLogs(replaced);
+}
+
+/**
+ * Yalnızca seçilen regl başlangıç kaydını siler.
+ */
+function removePeriodStartLog(
+  logs: PeriodLog[],
+  startDate: string
+): PeriodLog[] {
+  return normalizeLogs(logs).filter((log) => log.startDate !== startDate);
+}
+
+/**
+ * Yeni bir regl başlangıcının mevcut kayıtlarla çakışıp çakışmadığını kontrol eder.
+ *
+ * - Aynı gün zaten kayıtlıysa tekrar eklenmez.
+ * - Mevcut regl döneminin içine düşüyorsa yeni başlangıç sayılmaz.
+ * - Başka bir regl başlangıcına 21 günden daha yakınsa kullanıcıdan açık onay isteriz.
+ *
+ * `ignoreStartDate`, "son regl başlangıcı" alanından mevcut son kaydı düzeltirken
+ * o kaydın kendi kendisiyle çakışmasını engellemek için kullanılır.
+ */
+function getPeriodStartConflict(
+  logs: PeriodLog[],
+  startDate: string,
+  periodLength: number,
+  ignoreStartDate?: string
+): PeriodStartConflict | null {
+  const normalized = normalizeLogs(logs).filter(
+    (log) => log.startDate !== ignoreStartDate
+  );
+  const target = fromLocalISODate(startDate);
+
+  let closestTooClose: PeriodStartConflict | null = null;
+
+  for (const log of normalized) {
+    const existingStart = fromLocalISODate(log.startDate);
+    const signedDiff = differenceInDays(target, existingStart);
+    const distanceDays = Math.abs(signedDiff);
+
+    if (distanceDays === 0) {
+      return {
+        kind: "duplicate",
+        relatedStartDate: log.startDate,
+        distanceDays: 0,
+      };
+    }
+
+    if (signedDiff > 0 && signedDiff < Math.max(periodLength, 1)) {
+      return {
+        kind: "inside_existing_period",
+        relatedStartDate: log.startDate,
+        distanceDays,
+      };
+    }
+
+    if (distanceDays < MIN_TYPICAL_CYCLE_DAYS) {
+      if (!closestTooClose || distanceDays < closestTooClose.distanceDays) {
+        closestTooClose = {
+          kind: "too_close",
+          relatedStartDate: log.startDate,
+          distanceDays,
+        };
+      }
+    }
+  }
+
+  return closestTooClose;
 }
 
 /**
@@ -481,6 +586,9 @@ export default function PeriodScreen() {
   const [inputAverageCycle, setInputAverageCycle] = useState("28");
   const [inputPeriodLength, setInputPeriodLength] = useState("5");
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [editingPeriodStart, setEditingPeriodStart] = useState<string | null>(
+    null
+  );
 
   // 🧪 Debug panel state
   const [debugVisible, setDebugVisible] = useState(false);
@@ -945,9 +1053,246 @@ export default function PeriodScreen() {
     const normalized = normalizeLogs(nextLogs);
     setLogs(normalized);
     await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(normalized));
+
+    if (normalized.length === 0) {
+      await clearCycleNotifications();
+      return;
+    }
+
     await scheduleCycleNotifications(normalized, nextSettings, {
       silent: true,
     });
+  };
+
+  const saveNewPeriodStart = async (
+    startDate: string,
+    nextSettings: PeriodSettings,
+    source: "today" | "calendar"
+  ) => {
+    const newLogs = addPeriodStartLog(logs, startDate);
+    const latestStart = newLogs[newLogs.length - 1]?.startDate;
+
+    if (latestStart) {
+      setInputLastStartDate(formatLocalISODateTR(latestStart));
+    }
+
+    await persistLogsAndReschedule(newLogs, nextSettings);
+
+    Alert.alert(
+      "Kaydedildi",
+      source === "today"
+        ? "Bugünü regl başlangıcı olarak işaretledin. Geçmiş kayıtların korundu; tahminler güncellendi."
+        : "Bu tarihi regl başlangıcı olarak ekledin. Geçmiş kayıtların korundu; tahminler güncellendi."
+    );
+  };
+
+  const handlePeriodStartCandidate = async (
+    startDate: string,
+    nextSettings: PeriodSettings,
+    source: "today" | "calendar"
+  ) => {
+    const conflict = getPeriodStartConflict(
+      logs,
+      startDate,
+      nextSettings.periodLength
+    );
+
+    if (!conflict) {
+      await saveNewPeriodStart(startDate, nextSettings, source);
+      return;
+    }
+
+    const relatedDateTR = formatLocalISODateTR(conflict.relatedStartDate);
+
+    if (conflict.kind === "duplicate") {
+      Alert.alert(
+        "Bu tarih zaten kayıtlı",
+        `${relatedDateTR} zaten regl başlangıcı olarak kayıtlı. Yeni bir kayıt eklenmedi.`
+      );
+      return;
+    }
+
+    if (conflict.kind === "inside_existing_period") {
+      Alert.alert(
+        "Bu gün mevcut regl döneminin içinde",
+        `${startDate === conflict.relatedStartDate ? relatedDateTR : formatLocalISODateTR(startDate)} tarihi, ${relatedDateTR} tarihinde başlayan kayıtlı regl döneminin içinde görünüyor. Yeni bir regl başlangıcı eklenmedi.`
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Regl başlangıçları birbirine çok yakın",
+      `${formatLocalISODateTR(startDate)} tarihi, ${relatedDateTR} tarihindeki kayıtlı regl başlangıcına ${conflict.distanceDays} gün uzaklıkta. 21 günden kısa aralıklar tipik döngü aralığının dışındadır ve bu kanama ara kanama/lekelenme de olabilir.
+
+Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı alanını kullan. Bunun gerçekten yeni bir regl dönemi olduğundan eminsen yine de kaydedebilirsin.`,
+      [
+        { text: "Vazgeç", style: "cancel" },
+        {
+          text: "Yine de regl olarak kaydet",
+          style: "destructive",
+          onPress: () => {
+            void saveNewPeriodStart(startDate, nextSettings, source);
+          },
+        },
+      ]
+    );
+  };
+
+  const saveEditedPeriodStart = async (
+    originalStartDate: string,
+    nextStartDate: string,
+    nextSettings: PeriodSettings
+  ) => {
+    const nextLogs = replacePeriodStartLog(
+      logs,
+      originalStartDate,
+      nextStartDate
+    );
+    const latestStart = nextLogs[nextLogs.length - 1]?.startDate;
+
+    setEditingPeriodStart(null);
+    setInputLastStartDate(
+      latestStart ? formatLocalISODateTR(latestStart) : ""
+    );
+    await persistLogsAndReschedule(nextLogs, nextSettings);
+
+    Alert.alert(
+      "Güncellendi",
+      `${formatLocalISODateTR(originalStartDate)} başlangıçlı regl kaydı ${formatLocalISODateTR(nextStartDate)} olarak güncellendi. Diğer geçmiş kayıtların korundu.`
+    );
+  };
+
+  const handleEditPeriodStartCandidate = async (
+    originalStartDate: string,
+    nextStartDate: string,
+    nextSettings: PeriodSettings
+  ) => {
+    const conflict = getPeriodStartConflict(
+      logs,
+      nextStartDate,
+      nextSettings.periodLength,
+      originalStartDate
+    );
+
+    if (!conflict) {
+      await saveEditedPeriodStart(
+        originalStartDate,
+        nextStartDate,
+        nextSettings
+      );
+      return;
+    }
+
+    const relatedDateTR = formatLocalISODateTR(conflict.relatedStartDate);
+
+    if (conflict.kind === "duplicate") {
+      Alert.alert(
+        "Bu tarih zaten kayıtlı",
+        `${relatedDateTR} zaten başka bir regl başlangıcı olarak kayıtlı. Farklı bir tarih seç.`
+      );
+      return;
+    }
+
+    if (conflict.kind === "inside_existing_period") {
+      Alert.alert(
+        "Bu gün başka bir regl döneminin içinde",
+        `${formatLocalISODateTR(nextStartDate)} tarihi, ${relatedDateTR} tarihinde başlayan başka bir regl döneminin içine düşüyor. Farklı bir tarih seç.`
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Yeni tarih başka bir kayda çok yakın",
+      `${formatLocalISODateTR(nextStartDate)} tarihi, ${relatedDateTR} tarihindeki regl başlangıcına ${conflict.distanceDays} gün uzaklıkta. Bunun doğru olduğundan eminsen kaydı yine de değiştirebilirsin.`,
+      [
+        { text: "Başka tarih seç", style: "cancel" },
+        {
+          text: "Yine de değiştir",
+          style: "destructive",
+          onPress: () => {
+            void saveEditedPeriodStart(
+              originalStartDate,
+              nextStartDate,
+              nextSettings
+            );
+          },
+        },
+      ]
+    );
+  };
+
+  const deletePeriodStart = async (
+    startDate: string,
+    nextSettings: PeriodSettings
+  ) => {
+    const nextLogs = removePeriodStartLog(logs, startDate);
+    const latestStart = nextLogs[nextLogs.length - 1]?.startDate;
+
+    if (editingPeriodStart === startDate) {
+      setEditingPeriodStart(null);
+    }
+
+    setInputLastStartDate(
+      latestStart ? formatLocalISODateTR(latestStart) : ""
+    );
+    await persistLogsAndReschedule(nextLogs, nextSettings);
+
+    Alert.alert(
+      "Silindi",
+      `${formatLocalISODateTR(startDate)} başlangıçlı regl kaydı silindi. Diğer geçmiş kayıtların korundu.`
+    );
+  };
+
+  const handleExistingPeriodPress = (
+    startDate: string,
+    nextSettings: PeriodSettings
+  ) => {
+    const start = fromLocalISODate(startDate);
+    const end = new Date(start);
+    end.setDate(
+      end.getDate() + Math.max(nextSettings.periodLength, 1) - 1
+    );
+
+    const rangeText =
+      nextSettings.periodLength > 1
+        ? `${formatLocalISODateTR(startDate)} – ${formatLocalISODateTR(
+            toLocalISODate(end)
+          )}`
+        : formatLocalISODateTR(startDate);
+
+    Alert.alert(
+      "Regl kaydını düzenle",
+      `${rangeText} olarak görünen bu dönem, ${formatLocalISODateTR(startDate)} başlangıç kaydından hesaplanıyor. Ne yapmak istersin?`,
+      [
+        { text: "Vazgeç", style: "cancel" },
+        {
+          text: "Başlangıcı değiştir",
+          onPress: () => {
+            setEditingPeriodStart(startDate);
+          },
+        },
+        {
+          text: "Kaydı sil",
+          style: "destructive",
+          onPress: () => {
+            Alert.alert(
+              "Regl kaydı silinsin mi?",
+              `${formatLocalISODateTR(startDate)} başlangıçlı regl kaydı silinecek. Bu işlem döngü tahminlerini değiştirebilir.`,
+              [
+                { text: "Vazgeç", style: "cancel" },
+                {
+                  text: "Kaydı sil",
+                  style: "destructive",
+                  onPress: () => {
+                    void deletePeriodStart(startDate, nextSettings);
+                  },
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
   };
 
   const resetPeriodHistory = async () => {
@@ -1009,6 +1354,39 @@ export default function PeriodScreen() {
       }
     }
 
+    if (isoFromInput && logs.length > 0) {
+      const normalizedLogs = normalizeLogs(logs);
+      const latestStart = normalizedLogs[normalizedLogs.length - 1]?.startDate;
+      const conflict = getPeriodStartConflict(
+        normalizedLogs,
+        isoFromInput,
+        len,
+        latestStart
+      );
+
+      if (conflict) {
+        const relatedDateTR = formatLocalISODateTR(conflict.relatedStartDate);
+
+        if (conflict.kind === "duplicate") {
+          Alert.alert(
+            "Bu tarih başka bir kayıtta var",
+            `${relatedDateTR} zaten farklı bir regl başlangıcı olarak kayıtlı. Son regl başlangıcı bu tarihle değiştirilemedi.`
+          );
+        } else if (conflict.kind === "inside_existing_period") {
+          Alert.alert(
+            "Tarih kayıtlı bir regl dönemine denk geliyor",
+            `Seçtiğin tarih, ${relatedDateTR} tarihinde başlayan kayıtlı regl döneminin içine düşüyor. Önce kayıtlarını kontrol et.`
+          );
+        } else {
+          Alert.alert(
+            "Tarih önceki kayda çok yakın",
+            `Bu değişiklik ${relatedDateTR} tarihindeki regl başlangıcıyla yalnızca ${conflict.distanceDays} günlük aralık oluşturuyor. Gerçekten ayrı bir regl dönemi eklemek istiyorsan takvimden ekle; son regl tarihini düzeltmek istiyorsan kayıtlarını kontrol edip tekrar dene.`
+          );
+        }
+        return;
+      }
+    }
+
     const newSettings: PeriodSettings = {
       averageCycleLength: avg,
       periodLength: len,
@@ -1035,17 +1413,14 @@ export default function PeriodScreen() {
   };
 
   const handleTodayStarted = async () => {
-    const todayIso = toLocalISODate(new Date());
-    const effSettings = await ensureSettingsStored();
-
-    const newLogs = upsertPeriodLog(logs, todayIso, effSettings.periodLength);
-    setInputLastStartDate(formatLocalISODateTR(todayIso));
-    await persistLogsAndReschedule(newLogs, effSettings);
-
-    Alert.alert(
-      "Kaydedildi",
-      "Bugünü regl başlangıcı olarak işaretledin. Tahminler ve bildirimler güncellendi."
-    );
+    try {
+      const todayIso = toLocalISODate(new Date());
+      const effSettings = await ensureSettingsStored();
+      await handlePeriodStartCandidate(todayIso, effSettings, "today");
+    } catch (e) {
+      console.log("handleTodayStarted save error:", e);
+      Alert.alert("Hata", "Regl başlangıcı kaydedilemedi. Lütfen tekrar dene.");
+    }
   };
 
   const handleCalendarDayPress = async (day: DateObject) => {
@@ -1055,16 +1430,34 @@ export default function PeriodScreen() {
       if (isFutureISODate(pickedIso)) {
         Alert.alert(
           "Geçersiz tarih",
-          "Son regl başlangıcı ileri bir tarih olamaz. Lütfen bugünü veya geçmiş bir günü seç."
+          "Regl başlangıcı ileri bir tarih olamaz. Lütfen bugünü veya geçmiş bir günü seç."
         );
         return;
       }
 
       const effSettings = await ensureSettingsStored();
-      const newLogs = replaceLatestPeriodLog(logs, pickedIso);
 
-      setInputLastStartDate(formatLocalISODateTR(pickedIso));
-      await persistLogsAndReschedule(newLogs, effSettings);
+      if (editingPeriodStart) {
+        await handleEditPeriodStartCandidate(
+          editingPeriodStart,
+          pickedIso,
+          effSettings
+        );
+        return;
+      }
+
+      const existingPeriod = findPeriodLogForDate(
+        logs,
+        pickedIso,
+        effSettings.periodLength
+      );
+
+      if (existingPeriod) {
+        handleExistingPeriodPress(existingPeriod.startDate, effSettings);
+        return;
+      }
+
+      await handlePeriodStartCandidate(pickedIso, effSettings, "calendar");
     } catch (e) {
       console.log("handleCalendarDayPress save error:", e);
       Alert.alert("Hata", "Tarih kaydedilemedi. Lütfen tekrar dene.");
@@ -1391,12 +1784,31 @@ export default function PeriodScreen() {
                   Geçmiş regl günlerin, tahmini regl dönemlerin ve verimli
                   günlerin burada işaretlenir.
                 </Text>
+                <Text style={styles.calendarEditHint}>
+                  Bir regl kaydını düzeltmek veya silmek için kırmızı bir güne
+                  dokun.
+                </Text>
               </View>
 
               <View style={styles.sectionIconBadge}>
                 <Text style={styles.sectionIconText}>🗓️</Text>
               </View>
             </View>
+
+            {editingPeriodStart ? (
+              <View style={styles.calendarEditMode}>
+                <Text style={styles.calendarEditModeText}>
+                  {formatLocalISODateTR(editingPeriodStart)} başlangıcını
+                  değiştiriyorsun. Yeni başlangıç gününe dokun.
+                </Text>
+                <Pressable
+                  onPress={() => setEditingPeriodStart(null)}
+                  hitSlop={8}
+                >
+                  <Text style={styles.calendarEditModeCancel}>Vazgeç</Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             <Calendar
               onDayPress={handleCalendarDayPress}
@@ -1910,7 +2322,43 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     color: COLORS.textSoft,
+    marginBottom: 8,
+  },
+
+  calendarEditHint: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: COLORS.primaryDark,
+    fontWeight: "700",
     marginBottom: 12,
+  },
+
+  calendarEditMode: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    backgroundColor: COLORS.chip,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+
+  calendarEditModeText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
+    color: COLORS.textSoft,
+    fontWeight: "600",
+  },
+
+  calendarEditModeCancel: {
+    fontSize: 12,
+    color: COLORS.primaryDark,
+    fontWeight: "800",
   },
 
   sectionIconBadge: {
