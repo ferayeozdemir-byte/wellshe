@@ -88,6 +88,7 @@ const DEFAULT_SETTINGS: PeriodSettings = {
 
 const LATE_REMINDER_DAYS = 1;
 const PREGNANCY_CHECK_REMINDER_DAYS = 7;
+const PREDICTED_PERIOD_CYCLE_COUNT = 3;
 
 const COLORS = {
   bg: "#FFF8F5",
@@ -560,20 +561,36 @@ function getMarkedDates(
     };
   }
 
-  // Tahmini sonraki regl: çok açık pembe + ince çerçeve.
+  // Önümüzdeki 3 tahmini regl dönemini göster.
+  // Bunlar kullanıcı verisine/logs içine kaydedilmez; her render'da mevcut
+  // gerçek regl başlangıçlarından ve öğrenilmiş döngü süresinden yeniden hesaplanır.
   const next = getNextPeriodStart(normalizedLogs, effectiveSettings);
   if (next) {
-    const nextStart = fromLocalISODate(next);
-    for (let i = 0; i < periodLength; i++) {
-      const d = new Date(nextStart);
-      d.setDate(d.getDate() + i);
-      const key = toLocalISODate(d);
-      if (!marked[key]?.isActualPeriod) {
-        marked[key] = makeMark(
-          COLORS.predictedPeriod,
-          COLORS.text,
-          COLORS.predictedPeriodBorder
-        );
+    const firstPredictedStart = fromLocalISODate(next);
+    const cycleLength = effectiveSettings.averageCycleLength;
+
+    for (
+      let cycleIndex = 0;
+      cycleIndex < PREDICTED_PERIOD_CYCLE_COUNT;
+      cycleIndex++
+    ) {
+      const predictedStart = new Date(firstPredictedStart);
+      predictedStart.setDate(
+        predictedStart.getDate() + cycleIndex * cycleLength
+      );
+
+      for (let dayIndex = 0; dayIndex < periodLength; dayIndex++) {
+        const d = new Date(predictedStart);
+        d.setDate(d.getDate() + dayIndex);
+        const key = toLocalISODate(d);
+
+        if (!marked[key]?.isActualPeriod) {
+          marked[key] = makeMark(
+            COLORS.predictedPeriod,
+            COLORS.text,
+            COLORS.predictedPeriodBorder
+          );
+        }
       }
     }
   }
@@ -2169,8 +2186,8 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
               <View style={styles.cardHeaderTextWrap}>
                 <Text style={styles.cardTitle}>Takvim Görünümü</Text>
                 <Text style={styles.cardDescription}>
-                  Regl kayıtların, tahmini regl günlerin ve verimli günlerin
-                  burada gösterilir.
+                  Regl kayıtların, önümüzdeki tahmini regl günlerin ve verimli
+                  günlerin burada gösterilir.
                 </Text>
                 <Text style={styles.calendarEditHint}>
                   Başlangıç veya bitiş gününü düzeltmek ya da kaydı silmek için
