@@ -85,10 +85,17 @@ type DischargeObservation = {
 
 type DischargeNoteTarget = "consistency" | "color";
 
+type BleedingType = "none" | "spotting" | "light" | "medium" | "heavy";
+
+type BleedingObservation = {
+  type: BleedingType;
+};
+
 type MoodDay = {
   mood?: MoodLevel;
   symptoms?: string[];
   discharge?: DischargeObservation;
+  bleeding?: BleedingObservation;
 };
 
 type MoodData = Record<string, MoodDay>;
@@ -209,6 +216,17 @@ const DISCHARGE_ODOR_OPTIONS: {
 }[] = [
   { key: "usual", label: "Her zamanki gibi" },
   { key: "unusual", label: "Belirgin / farklı" },
+];
+
+const BLEEDING_OPTIONS: {
+  key: BleedingType;
+  label: string;
+}[] = [
+  { key: "none", label: "Yok" },
+  { key: "spotting", label: "Lekelenme" },
+  { key: "light", label: "Hafif" },
+  { key: "medium", label: "Orta" },
+  { key: "heavy", label: "Yoğun" },
 ];
 
 function safeJsonParse<T = any>(raw: string | null): T | null {
@@ -863,6 +881,7 @@ export default function PeriodScreen() {
   const todayMood = moodData[todayKey]?.mood;
   const todaySymptoms = moodData[todayKey]?.symptoms ?? [];
   const todayDischarge = moodData[todayKey]?.discharge ?? {};
+  const todayBleeding = moodData[todayKey]?.bleeding;
 
   const normalizedLogs = useMemo(() => normalizeLogs(logs), [logs]);
 
@@ -2125,6 +2144,31 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
     });
   };
 
+  const handleSelectBleeding = (type: BleedingType) => {
+    setMoodData((prev: MoodData) => {
+      const currentDay = prev[todayKey] ?? {};
+      const isAlreadySelected = currentDay.bleeding?.type === type;
+
+      const nextDay: MoodDay = {
+        ...currentDay,
+      };
+
+      if (isAlreadySelected) {
+        delete nextDay.bleeding;
+      } else {
+        nextDay.bleeding = { type };
+      }
+
+      const next: MoodData = {
+        ...prev,
+        [todayKey]: nextDay,
+      };
+
+      void AsyncStorage.setItem(MOOD_DATA_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
   if (loading) {
     return (
       <>
@@ -2864,6 +2908,75 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
 
             <Text style={styles.dischargeFootnote}>
               Bu alan kişisel gözlem içindir; tıbbi tanı koymaz.
+            </Text>
+
+            <View style={styles.bleedingDivider} />
+
+            <Text style={styles.bleedingTitle}>
+              Regl dışı kanama / lekelenme
+            </Text>
+            <Text style={styles.bleedingDescription}>
+              Regl dönemin dışında fark ettiğin kanamayı günlük gözlem olarak
+              kaydedebilirsin. Bu kayıt döngü tahminlerini değiştirmez.
+            </Text>
+
+            {isCurrentlyInPeriod ? (
+              <View style={styles.bleedingPeriodNotice}>
+                <Text style={styles.bleedingPeriodNoticeText}>
+                  Şu an kayıtlı regl dönemindesin. Regl kanaman ayrı regl
+                  kaydında tutuluyor; bu alanı kullanmana gerek yok.
+                </Text>
+              </View>
+            ) : (
+              <>
+                <View style={styles.bleedingOptionsWrap}>
+                  {BLEEDING_OPTIONS.map((option) => {
+                    const selected = todayBleeding?.type === option.key;
+
+                    return (
+                      <Pressable
+                        key={option.key}
+                        style={[
+                          styles.bleedingChip,
+                          selected && styles.bleedingChipSelected,
+                        ]}
+                        onPress={() => handleSelectBleeding(option.key)}
+                      >
+                        <Text
+                          style={[
+                            styles.bleedingChipText,
+                            selected && styles.bleedingChipTextSelected,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {todayBleeding?.type &&
+                todayBleeding.type !== "none" ? (
+                  <Text style={styles.bleedingSavedStatus}>
+                    ✓ Bugünkü gözlemin kaydedildi.
+                  </Text>
+                ) : null}
+
+                {todayBleeding?.type === "heavy" ? (
+                  <View style={styles.bleedingHeavyNotice}>
+                    <Text style={styles.bleedingHeavyNoticeText}>
+                      Çok yoğun kanama devam ediyorsa veya baş dönmesi, nefes
+                      darlığı ya da göğüs ağrısı gibi belirtiler eşlik ediyorsa
+                      acil tıbbi değerlendirme gerekir.
+                    </Text>
+                  </View>
+                ) : null}
+              </>
+            )}
+
+            <Text style={styles.bleedingFootnote}>
+              Regl dönemleri arasında tekrarlayan veya açıklanamayan kanama ya
+              da lekelenme için bir sağlık profesyoneliyle görüşmen iyi olur.
             </Text>
           </View>
 
@@ -3747,6 +3860,101 @@ const styles = StyleSheet.create({
 
   dischargeFootnote: {
     marginTop: 6,
+    fontSize: 11,
+    lineHeight: 17,
+    color: COLORS.textMuted,
+  },
+
+  bleedingDivider: {
+    height: 1,
+    backgroundColor: COLORS.border,
+    marginTop: 18,
+    marginBottom: 16,
+  },
+
+  bleedingTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+
+  bleedingDescription: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: COLORS.textMuted,
+    marginBottom: 12,
+  },
+
+  bleedingOptionsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+
+  bleedingChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: "#FFFDFC",
+    marginRight: 8,
+    marginBottom: 8,
+  },
+
+  bleedingChipSelected: {
+    backgroundColor: "#FFF0F2",
+    borderColor: "#E7B6BD",
+  },
+
+  bleedingChipText: {
+    fontSize: 13,
+    color: COLORS.textSoft,
+  },
+
+  bleedingChipTextSelected: {
+    color: COLORS.primaryDark,
+    fontWeight: "800",
+  },
+
+  bleedingSavedStatus: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: "700",
+    color: COLORS.primaryDark,
+  },
+
+  bleedingPeriodNotice: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    backgroundColor: "#FFF9F7",
+    padding: 11,
+  },
+
+  bleedingPeriodNoticeText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: COLORS.textSoft,
+  },
+
+  bleedingHeavyNotice: {
+    marginTop: 10,
+    borderRadius: 12,
+    backgroundColor: "#FFF4F1",
+    borderWidth: 1,
+    borderColor: "#F1D2CD",
+    padding: 11,
+  },
+
+  bleedingHeavyNoticeText: {
+    fontSize: 11,
+    lineHeight: 17,
+    color: COLORS.textSoft,
+  },
+
+  bleedingFootnote: {
+    marginTop: 10,
     fontSize: 11,
     lineHeight: 17,
     color: COLORS.textMuted,
