@@ -98,10 +98,15 @@ const COLORS = {
   card: "#FFFFFF",
   primary: "#D77878",
   primaryDark: "#B75F61",
-  period: "#FF7D8E",
-  fertile: "#FFE6F0",
-  ovulation: "#FF98BA",
-  today: "#CDA6A6",
+
+  // Takvim fazları: birbirinden kolay ayırt edilebilen yumuşak tonlar
+  period: "#F47C8D",
+  predictedPeriod: "#F9E4E8",
+  predictedPeriodBorder: "#F2C8D0",
+  fertile: "#DCCFF4",
+  ovulation: "#8F37C9",
+  today: "#6D4A43",
+
   chip: "#FFF3F0",
   heroBg: "#FFF0EC",
   lateBg: "#FFF4F1",
@@ -497,39 +502,43 @@ function getMarkedDates(
   const periodLength = effectiveSettings.periodLength;
   const normalizedLogs = normalizeLogs(logs);
 
-  // Geçmiş regl günleri
-  normalizedLogs.forEach((log) => {
-    const start = fromLocalISODate(log.startDate);
-    const end = fromLocalISODate(getPeriodDisplayEndIso(log, periodLength));
-    const markedDayCount = Math.max(differenceInDays(end, start) + 1, 1);
-
-    for (let i = 0; i < markedDayCount; i++) {
-      const d = new Date(start);
-      d.setDate(d.getDate() + i);
-      const key = toLocalISODate(d);
-      marked[key] = {
-        ...(marked[key] || {}),
-        selected: true,
-        selectedColor: COLORS.period,
-      };
-    }
+  const makeMark = (
+    backgroundColor: string,
+    textColor = COLORS.text,
+    borderColor?: string
+  ) => ({
+    customStyles: {
+      container: {
+        width: 34,
+        height: 34,
+        borderRadius: 999,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor,
+        ...(borderColor
+          ? {
+              borderWidth: 1,
+              borderColor,
+            }
+          : {}),
+      },
+      text: {
+        color: textColor,
+        fontWeight: "600",
+      },
+    },
   });
 
-  // Tahmini sonraki regl günleri
-  const next = getNextPeriodStart(normalizedLogs, effectiveSettings);
-  if (next) {
-    const nextStart = fromLocalISODate(next);
-    for (let i = 0; i < periodLength; i++) {
-      const d = new Date(nextStart);
-      d.setDate(d.getDate() + i);
-      const key = toLocalISODate(d);
-      if (!marked[key]) {
-        marked[key] = { selected: true, selectedColor: "#F7D3E2" };
-      }
-    }
-  }
+  const setPhaseMark = (
+    key: string,
+    backgroundColor: string,
+    textColor = COLORS.text
+  ) => {
+    if (marked[key]?.isActualPeriod) return;
+    marked[key] = makeMark(backgroundColor, textColor);
+  };
 
-  // Ovülasyon + verimli günler
+  // Verimli dönem + ovülasyon
   const ovInfo = getOvulationInfo(normalizedLogs, effectiveSettings);
   if (ovInfo.ovulationDate && ovInfo.windowStart && ovInfo.windowEnd) {
     const ws = fromLocalISODate(ovInfo.windowStart);
@@ -540,19 +549,74 @@ function getMarkedDates(
       d.getTime() <= we.getTime();
       d.setDate(d.getDate() + 1)
     ) {
-      const key = toLocalISODate(d);
-      if (!marked[key]) {
-        marked[key] = { selected: true, selectedColor: COLORS.fertile };
-      }
+      setPhaseMark(toLocalISODate(d), COLORS.fertile);
     }
 
     const ovKey = ovInfo.ovulationDate;
     marked[ovKey] = {
-      ...(marked[ovKey] || {}),
+      ...(marked[ovKey] || makeMark(COLORS.fertile)),
       marked: true,
       dotColor: COLORS.ovulation,
     };
   }
+
+  // Tahmini sonraki regl: çok açık pembe + ince çerçeve.
+  const next = getNextPeriodStart(normalizedLogs, effectiveSettings);
+  if (next) {
+    const nextStart = fromLocalISODate(next);
+    for (let i = 0; i < periodLength; i++) {
+      const d = new Date(nextStart);
+      d.setDate(d.getDate() + i);
+      const key = toLocalISODate(d);
+      if (!marked[key]?.isActualPeriod) {
+        marked[key] = makeMark(
+          COLORS.predictedPeriod,
+          COLORS.text,
+          COLORS.predictedPeriodBorder
+        );
+      }
+    }
+  }
+
+  // Kayıtlı regl dönemleri her zaman en güçlü işaretleme olarak diğer fazların üstüne yazılır.
+  normalizedLogs.forEach((log) => {
+    const start = fromLocalISODate(log.startDate);
+    const end = fromLocalISODate(getPeriodDisplayEndIso(log, periodLength));
+    const markedDayCount = Math.max(differenceInDays(end, start) + 1, 1);
+
+    for (let i = 0; i < markedDayCount; i++) {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i);
+      const key = toLocalISODate(d);
+      marked[key] = {
+        ...makeMark(COLORS.period, "#FFFFFF"),
+        isActualPeriod: true,
+      };
+    }
+  });
+
+  // Bugün: içinde bulunduğu faz rengini koruyup yalnızca dış halka ekle.
+  const todayKey = toLocalISODate(new Date());
+  const todayMark = marked[todayKey] ?? makeMark("transparent");
+  const todayContainer = todayMark.customStyles?.container ?? {};
+  const todayText = todayMark.customStyles?.text ?? {};
+
+  marked[todayKey] = {
+    ...todayMark,
+    customStyles: {
+      ...(todayMark.customStyles || {}),
+      container: {
+        ...todayContainer,
+        borderWidth: 3,
+        borderColor: COLORS.today,
+      },
+      text: {
+        ...todayText,
+        color: todayText.color ?? COLORS.text,
+        fontWeight: "700",
+      },
+    },
+  };
 
   return marked;
 }
@@ -595,31 +659,35 @@ function LegendItem({
   type,
   label,
 }: {
-  type: "period" | "fertile" | "ovulation" | "today";
+  type:
+    | "period"
+    | "predictedPeriod"
+    | "fertile"
+    | "ovulation"
+    | "today";
   label: string;
 }) {
+  const dotStyle = [
+    styles.legendDot,
+    type === "period" && styles.legendPeriod,
+    type === "predictedPeriod" && styles.legendPredictedPeriod,
+    type === "fertile" && styles.legendFertile,
+    type === "ovulation" && styles.legendFertile,
+    type === "today" && styles.legendToday,
+  ];
+
   return (
     <View style={styles.legendItem}>
-      {type === "period" ? (
-        <View style={[styles.legendDot, styles.legendPeriod]} />
-      ) : null}
-      {type === "fertile" ? (
-        <View style={[styles.legendDot, styles.legendFertile]} />
-      ) : null}
-      {type === "ovulation" ? (
-        <View
-          style={[
-            styles.legendDot,
-            styles.legendFertile,
-            styles.legendOvulationWrap,
-          ]}
-        >
+      <View
+        style={[
+          dotStyle,
+          type === "ovulation" && styles.legendOvulationWrap,
+        ]}
+      >
+        {type === "ovulation" ? (
           <View style={styles.legendOvulationDot} />
-        </View>
-      ) : null}
-      {type === "today" ? (
-        <View style={[styles.legendDot, styles.legendToday]} />
-      ) : null}
+        ) : null}
+      </View>
       <Text style={styles.legendLabel}>{label}</Text>
     </View>
   );
@@ -2101,8 +2169,8 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
               <View style={styles.cardHeaderTextWrap}>
                 <Text style={styles.cardTitle}>Takvim Görünümü</Text>
                 <Text style={styles.cardDescription}>
-                  Geçmiş regl günlerin, tahmini regl dönemlerin ve verimli
-                  günlerin burada işaretlenir.
+                  Regl kayıtların, tahmini regl günlerin ve verimli günlerin
+                  burada gösterilir.
                 </Text>
                 <Text style={styles.calendarEditHint}>
                   Başlangıç veya bitiş gününü düzeltmek ya da kaydı silmek için
@@ -2148,6 +2216,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
             <Calendar
               onDayPress={handleCalendarDayPress}
               markedDates={markedDates}
+              markingType="custom"
               maxDate={todayKey}
               firstDay={1}
               theme={{
@@ -2163,8 +2232,9 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
             />
 
             <View style={styles.legendWrap}>
-              <LegendItem type="period" label="Regl günleri" />
-              <LegendItem type="fertile" label="Verimli günler" />
+              <LegendItem type="period" label="Regl dönemi" />
+              <LegendItem type="predictedPeriod" label="Tahmini regl" />
+              <LegendItem type="fertile" label="Verimli dönem" />
               <LegendItem type="ovulation" label="Ovülasyon" />
               <LegendItem type="today" label="Bugün" />
             </View>
@@ -2737,8 +2807,8 @@ const styles = StyleSheet.create({
   legendItem: {
     flexDirection: "row",
     alignItems: "center",
-    marginRight: 14,
-    marginBottom: 8,
+    marginRight: 12,
+    marginBottom: 10,
   },
 
   legendDot: {
@@ -2750,6 +2820,12 @@ const styles = StyleSheet.create({
 
   legendPeriod: {
     backgroundColor: COLORS.period,
+  },
+
+  legendPredictedPeriod: {
+    backgroundColor: COLORS.predictedPeriod,
+    borderWidth: 1,
+    borderColor: COLORS.predictedPeriodBorder,
   },
 
   legendFertile: {
@@ -2770,7 +2846,7 @@ const styles = StyleSheet.create({
 
   legendToday: {
     backgroundColor: "transparent",
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderColor: COLORS.today,
   },
 
