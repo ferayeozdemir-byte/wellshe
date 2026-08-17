@@ -116,6 +116,8 @@ type LateState = {
 const PERIOD_SETTINGS_KEY = "wellshe_period_settings";
 const PERIOD_LOGS_KEY = "wellshe_period_logs";
 const CYCLE_NOTIFICATION_IDS_KEY = "wellshe_cycle_notification_ids";
+const CYCLE_NOTIFICATIONS_ENABLED_KEY =
+  "wellshe_cycle_notifications_enabled";
 const MOOD_DATA_KEY = "wellshe_mood_data";
 
 // 🧪 DEBUG: Prod’da bile görebilmek için gizli panel
@@ -840,6 +842,8 @@ export default function PeriodScreen() {
   const [settings, setSettings] = useState<PeriodSettings | null>(null);
   const [logs, setLogs] = useState<PeriodLog[]>([]);
   const [moodData, setMoodData] = useState<MoodData>({});
+  const [cycleNotificationsEnabled, setCycleNotificationsEnabled] =
+    useState(false);
   const [loading, setLoading] = useState(true);
 
   const [inputLastStartDate, setInputLastStartDate] = useState("");
@@ -1226,13 +1230,35 @@ export default function PeriodScreen() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [settingsJson, logsJson, moodJson, cycleArchive] =
-          await Promise.all([
-            AsyncStorage.getItem(PERIOD_SETTINGS_KEY),
-            AsyncStorage.getItem(PERIOD_LOGS_KEY),
-            AsyncStorage.getItem(MOOD_DATA_KEY),
-            loadCycleDataV1(),
-          ]);
+        const [
+          settingsJson,
+          logsJson,
+          moodJson,
+          cycleArchive,
+          notificationEnabledJson,
+        ] = await Promise.all([
+          AsyncStorage.getItem(PERIOD_SETTINGS_KEY),
+          AsyncStorage.getItem(PERIOD_LOGS_KEY),
+          AsyncStorage.getItem(MOOD_DATA_KEY),
+          loadCycleDataV1(),
+          AsyncStorage.getItem(CYCLE_NOTIFICATIONS_ENABLED_KEY),
+        ]);
+
+        const hasExplicitNotificationPreference =
+          notificationEnabledJson === "true" ||
+          notificationEnabledJson === "false";
+        const resolvedNotificationsEnabled =
+          notificationEnabledJson === "true";
+
+        setCycleNotificationsEnabled(resolvedNotificationsEnabled);
+
+        if (!hasExplicitNotificationPreference) {
+          await AsyncStorage.setItem(
+            CYCLE_NOTIFICATIONS_ENABLED_KEY,
+            "false"
+          );
+          await clearCycleNotifications();
+        }
 
         const resolvedSettings: PeriodSettings = settingsJson
           ? JSON.parse(settingsJson)
@@ -1301,11 +1327,21 @@ export default function PeriodScreen() {
   const scheduleCycleNotifications = async (
     baseLogs: PeriodLog[],
     baseSettings: PeriodSettings | null,
-    options?: { silent?: boolean }
+    options?: { silent?: boolean; explicitEnable?: boolean }
   ) => {
     const silent = options?.silent ?? false;
+    const explicitEnable = options?.explicitEnable ?? false;
 
     try {
+      if (silent) {
+        const enabled = await AsyncStorage.getItem(
+          CYCLE_NOTIFICATIONS_ENABLED_KEY
+        );
+
+        if (enabled !== "true") {
+          return;
+        }
+      }
       if (!baseSettings || baseLogs.length === 0) {
         if (!silent) {
           Alert.alert(
@@ -1433,10 +1469,18 @@ export default function PeriodScreen() {
         JSON.stringify(ids)
       );
 
+      if (explicitEnable) {
+        await AsyncStorage.setItem(
+          CYCLE_NOTIFICATIONS_ENABLED_KEY,
+          "true"
+        );
+        setCycleNotificationsEnabled(true);
+      }
+
       if (!silent) {
         Alert.alert(
-          "Bildirimler ayarlandı",
-          "Bu döngü için hatırlatıcılar planlandı. Son regl tarihini güncellediğinde bildirimler otomatik yenilenir."
+          "Regl hatırlatıcıları açık",
+          "Bu döngü için hatırlatıcılar planlandı. Regl tarihlerini güncellediğinde, açık kaldığı sürece bildirimler otomatik yenilenir."
         );
       }
     } catch (e: any) {
@@ -1450,6 +1494,52 @@ export default function PeriodScreen() {
         );
       }
     }
+  };
+
+  const enableCycleNotifications = async () => {
+    await scheduleCycleNotifications(normalizedLogs, settings, {
+      silent: false,
+      explicitEnable: true,
+    });
+  };
+
+  const disableCycleNotifications = async () => {
+    try {
+      await clearCycleNotifications();
+      await AsyncStorage.setItem(
+        CYCLE_NOTIFICATIONS_ENABLED_KEY,
+        "false"
+      );
+      setCycleNotificationsEnabled(false);
+
+      Alert.alert(
+        "Regl hatırlatıcıları kapatıldı",
+        "Planlanmış regl hatırlatıcıların iptal edildi. İstersen daha sonra tekrar açabilirsin."
+      );
+    } catch (e) {
+      console.log("disableCycleNotifications error:", e);
+      Alert.alert(
+        "Hata",
+        "Regl hatırlatıcıları kapatılamadı. Lütfen tekrar dene."
+      );
+    }
+  };
+
+  const confirmDisableCycleNotifications = () => {
+    Alert.alert(
+      "Regl hatırlatıcıları kapatılsın mı?",
+      "Planlanmış regl bildirimlerin iptal edilecek. Döngü ve regl kayıtların etkilenmeyecek.",
+      [
+        { text: "Vazgeç", style: "cancel" },
+        {
+          text: "Kapat",
+          style: "destructive",
+          onPress: () => {
+            void disableCycleNotifications();
+          },
+        },
+      ]
+    );
   };
 
   const persistLogsAndReschedule = async (
@@ -2620,22 +2710,50 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
               <Text style={styles.linkButtonArrow}>›</Text>
             </Pressable>
 
+            <View style={styles.notificationStatusRow}>
+              <View
+                style={[
+                  styles.notificationStatusDot,
+                  cycleNotificationsEnabled &&
+                    styles.notificationStatusDotEnabled,
+                ]}
+              />
+              <Text style={styles.notificationStatusText}>
+                {cycleNotificationsEnabled
+                  ? "Regl hatırlatıcıları açık"
+                  : "Regl hatırlatıcıları kapalı"}
+              </Text>
+            </View>
+
             <Pressable
-              style={styles.notificationButton}
-              onPress={() =>
-                scheduleCycleNotifications(normalizedLogs, settings, {
-                  silent: false,
-                })
+              style={[
+                styles.notificationButton,
+                cycleNotificationsEnabled &&
+                  styles.notificationButtonDisable,
+              ]}
+              onPress={
+                cycleNotificationsEnabled
+                  ? confirmDisableCycleNotifications
+                  : enableCycleNotifications
               }
             >
-              <Text style={styles.notificationButtonText}>
-                Regl hatırlatıcılarını aç
+              <Text
+                style={[
+                  styles.notificationButtonText,
+                  cycleNotificationsEnabled &&
+                    styles.notificationButtonDisableText,
+                ]}
+              >
+                {cycleNotificationsEnabled
+                  ? "Regl hatırlatıcılarını kapat"
+                  : "Regl hatırlatıcılarını aç"}
               </Text>
             </Pressable>
 
             <Text style={styles.helperText}>
-              Tahmini regl gününden 2 gün önce, beklenen gün ve gecikme
-              durumunda bildirim alabilirsin.
+              {cycleNotificationsEnabled
+                ? "Tahmini regl gününden 2 gün önce, beklenen gün ve gecikme durumunda bildirim alırsın."
+                : "Açarsan tahmini regl gününden 2 gün önce, beklenen gün ve gecikme durumunda bildirim alabilirsin."}
             </Text>
           </View>
 
@@ -3368,8 +3486,33 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 
-  notificationButton: {
+  notificationStatusRow: {
     marginTop: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  notificationStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#B8AAA6",
+    marginRight: 7,
+  },
+
+  notificationStatusDotEnabled: {
+    backgroundColor: "#6E9B72",
+  },
+
+  notificationStatusText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.textSoft,
+  },
+
+  notificationButton: {
+    marginTop: 8,
     paddingVertical: 12,
     borderRadius: 14,
     backgroundColor: "#F7E3DE",
@@ -3377,10 +3520,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  notificationButtonDisable: {
+    backgroundColor: "#FFFDFC",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+
   notificationButtonText: {
     color: COLORS.primaryDark,
     fontSize: 15,
     fontWeight: "700",
+  },
+
+  notificationButtonDisableText: {
+    color: COLORS.textSoft,
   },
 
   helperText: {
