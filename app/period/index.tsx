@@ -8,6 +8,7 @@ import { Stack } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -51,9 +52,43 @@ type CycleNotificationIds = {
 
 type MoodLevel = "low" | "neutral" | "good" | "great";
 
+type DischargeConsistency =
+  | "none"
+  | "sticky"
+  | "creamy"
+  | "watery"
+  | "slippery_stretchy"
+  | "other";
+
+type DischargeAmount = "low" | "medium" | "high";
+
+type DischargeColor =
+  | "clear"
+  | "white"
+  | "off_white"
+  | "yellow"
+  | "green"
+  | "gray"
+  | "brown_red"
+  | "other";
+
+type DischargeOdor = "usual" | "unusual";
+
+type DischargeObservation = {
+  consistency?: DischargeConsistency;
+  consistencyNote?: string;
+  amount?: DischargeAmount;
+  color?: DischargeColor;
+  colorNote?: string;
+  odor?: DischargeOdor;
+};
+
+type DischargeNoteTarget = "consistency" | "color";
+
 type MoodDay = {
   mood?: MoodLevel;
   symptoms?: string[];
+  discharge?: DischargeObservation;
 };
 
 type MoodData = Record<string, MoodDay>;
@@ -131,6 +166,49 @@ const SYMPTOMS = [
   "Odaklanma zorluğu",
   "Bulantı",
   "Tatlı isteği",
+];
+
+const DISCHARGE_CONSISTENCY_OPTIONS: {
+  key: DischargeConsistency;
+  label: string;
+}[] = [
+  { key: "none", label: "Yok / kuru" },
+  { key: "sticky", label: "Yapışkan" },
+  { key: "creamy", label: "Kremsi" },
+  { key: "watery", label: "Sulu" },
+  { key: "slippery_stretchy", label: "Kaygan / uzayan" },
+  { key: "other", label: "Diğer" },
+];
+
+const DISCHARGE_AMOUNT_OPTIONS: {
+  key: DischargeAmount;
+  label: string;
+}[] = [
+  { key: "low", label: "Az" },
+  { key: "medium", label: "Orta" },
+  { key: "high", label: "Fazla" },
+];
+
+const DISCHARGE_COLOR_OPTIONS: {
+  key: DischargeColor;
+  label: string;
+}[] = [
+  { key: "clear", label: "Şeffaf" },
+  { key: "white", label: "Beyaz" },
+  { key: "off_white", label: "Krem / kırık beyaz" },
+  { key: "yellow", label: "Sarı" },
+  { key: "green", label: "Yeşil" },
+  { key: "gray", label: "Gri" },
+  { key: "brown_red", label: "Kahverengi / kırmızı" },
+  { key: "other", label: "Diğer" },
+];
+
+const DISCHARGE_ODOR_OPTIONS: {
+  key: DischargeOdor;
+  label: string;
+}[] = [
+  { key: "usual", label: "Her zamanki gibi" },
+  { key: "unusual", label: "Belirgin / farklı" },
 ];
 
 function safeJsonParse<T = any>(raw: string | null): T | null {
@@ -750,6 +828,10 @@ export default function PeriodScreen() {
     string | null
   >(null);
 
+  const [dischargeNoteTarget, setDischargeNoteTarget] =
+    useState<DischargeNoteTarget | null>(null);
+  const [dischargeNoteDraft, setDischargeNoteDraft] = useState("");
+
   // 🧪 Debug panel state
   const [debugVisible, setDebugVisible] = useState(false);
   const [debugDump, setDebugDump] = useState<string>("");
@@ -780,6 +862,7 @@ export default function PeriodScreen() {
 
   const todayMood = moodData[todayKey]?.mood;
   const todaySymptoms = moodData[todayKey]?.symptoms ?? [];
+  const todayDischarge = moodData[todayKey]?.discharge ?? {};
 
   const normalizedLogs = useMemo(() => normalizeLogs(logs), [logs]);
 
@@ -1844,16 +1927,200 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
 
   const handleToggleSymptom = async (symptom: string) => {
     setMoodData((prev: MoodData) => {
-      const next: MoodData = { ...prev };
-      const day: MoodDay = next[todayKey] ?? {};
-      const currentList = day.symptoms ?? [];
+      const currentDay = prev[todayKey] ?? {};
+      const currentList = currentDay.symptoms ?? [];
       const exists = currentList.includes(symptom);
       const newList = exists
         ? currentList.filter((s) => s !== symptom)
         : [...currentList, symptom];
-      day.symptoms = newList;
-      next[todayKey] = day;
+
+      const next: MoodData = {
+        ...prev,
+        [todayKey]: {
+          ...currentDay,
+          symptoms: newList,
+        },
+      };
+
       void AsyncStorage.setItem(MOOD_DATA_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const updateTodayDischarge = (
+    updater: (current: DischargeObservation) => DischargeObservation
+  ) => {
+    setMoodData((prev: MoodData) => {
+      const currentDay = prev[todayKey] ?? {};
+      const currentDischarge = currentDay.discharge ?? {};
+      const nextDischarge = updater(currentDischarge);
+
+      const next: MoodData = {
+        ...prev,
+        [todayKey]: {
+          ...currentDay,
+          discharge: nextDischarge,
+        },
+      };
+
+      // Şimdilik mevcut günlük veri anahtarında lokal tutulur.
+      // Sonraki migration adımında mood + semptom + akıntı birlikte
+      // wellshe_cycle_daily_logs_v1 yapısına taşınacak.
+      void AsyncStorage.setItem(MOOD_DATA_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const openDischargeNoteEditor = (target: DischargeNoteTarget) => {
+    const existingNote =
+      target === "consistency"
+        ? todayDischarge.consistencyNote
+        : todayDischarge.colorNote;
+
+    setDischargeNoteDraft(existingNote ?? "");
+    setDischargeNoteTarget(target);
+  };
+
+  const closeDischargeNoteEditor = () => {
+    Keyboard.dismiss();
+    setDischargeNoteTarget(null);
+    setDischargeNoteDraft("");
+  };
+
+  const saveDischargeNote = () => {
+    if (!dischargeNoteTarget) return;
+
+    const value = dischargeNoteDraft.trim();
+
+    updateTodayDischarge((current) => {
+      if (dischargeNoteTarget === "consistency") {
+        const next = {
+          ...current,
+          consistency: "other" as DischargeConsistency,
+        };
+
+        if (value) {
+          next.consistencyNote = value;
+        } else {
+          delete next.consistencyNote;
+        }
+
+        return next;
+      }
+
+      const next = {
+        ...(current.consistency === "none" ? {} : current),
+        color: "other" as DischargeColor,
+      };
+
+      if (value) {
+        next.colorNote = value;
+      } else {
+        delete next.colorNote;
+      }
+
+      return next;
+    });
+
+    Keyboard.dismiss();
+    setDischargeNoteTarget(null);
+    setDischargeNoteDraft("");
+  };
+
+  const handleSelectDischargeConsistency = (
+    consistency: DischargeConsistency
+  ) => {
+    if (
+      consistency === "other" &&
+      todayDischarge.consistency === "other"
+    ) {
+      openDischargeNoteEditor("consistency");
+      return;
+    }
+
+    updateTodayDischarge((current) => {
+      if (current.consistency === consistency) {
+        const next = { ...current };
+        delete next.consistency;
+        delete next.consistencyNote;
+        return next;
+      }
+
+      if (consistency === "none") {
+        return { consistency: "none" };
+      }
+
+      const next = {
+        ...(current.consistency === "none" ? {} : current),
+        consistency,
+      };
+
+      if (consistency !== "other") {
+        delete next.consistencyNote;
+      }
+
+      return next;
+    });
+
+    if (consistency === "other") {
+      openDischargeNoteEditor("consistency");
+    }
+  };
+
+  const handleSelectDischargeAmount = (amount: DischargeAmount) => {
+    updateTodayDischarge((current) => {
+      const next =
+        current.consistency === "none" ? {} : { ...current };
+
+      if (next.amount === amount) {
+        delete next.amount;
+      } else {
+        next.amount = amount;
+      }
+
+      return next;
+    });
+  };
+
+  const handleSelectDischargeColor = (color: DischargeColor) => {
+    if (color === "other" && todayDischarge.color === "other") {
+      openDischargeNoteEditor("color");
+      return;
+    }
+
+    updateTodayDischarge((current) => {
+      const next =
+        current.consistency === "none" ? {} : { ...current };
+
+      if (next.color === color) {
+        delete next.color;
+        delete next.colorNote;
+      } else {
+        next.color = color;
+        if (color !== "other") {
+          delete next.colorNote;
+        }
+      }
+
+      return next;
+    });
+
+    if (color === "other") {
+      openDischargeNoteEditor("color");
+    }
+  };
+
+  const handleSelectDischargeOdor = (odor: DischargeOdor) => {
+    updateTodayDischarge((current) => {
+      const next =
+        current.consistency === "none" ? {} : { ...current };
+
+      if (next.odor === odor) {
+        delete next.odor;
+      } else {
+        next.odor = odor;
+      }
+
       return next;
     });
   };
@@ -2021,9 +2288,96 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
           </KeyboardAvoidingView>
         </Modal>
 
+        <Modal
+          visible={dischargeNoteTarget !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={closeDischargeNoteEditor}
+        >
+          <KeyboardAvoidingView
+            style={styles.dischargeNoteModalKeyboard}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+          >
+            <View style={styles.dischargeNoteModalOverlay}>
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={closeDischargeNoteEditor}
+              />
+
+              <View style={styles.dischargeNoteModalCard}>
+                <View style={styles.dischargeNoteModalHeader}>
+                  <View style={styles.dischargeNoteModalHeaderText}>
+                    <Text style={styles.dischargeNoteModalTitle}>
+                      {dischargeNoteTarget === "consistency"
+                        ? "Kıvamı kendi sözlerinle tarif et"
+                        : "Rengi kendi sözlerinle tarif et"}
+                    </Text>
+                    <Text style={styles.dischargeNoteModalDescription}>
+                      Kısa ve sana anlamlı gelen bir tanım yazabilirsin.
+                    </Text>
+                  </View>
+
+                  <Pressable
+                    onPress={closeDischargeNoteEditor}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.dischargeNoteModalClose}>Kapat</Text>
+                  </Pressable>
+                </View>
+
+                <TextInput
+                  autoFocus
+                  style={styles.dischargeNoteModalInput}
+                  value={dischargeNoteDraft}
+                  onChangeText={(value) =>
+                    setDischargeNoteDraft(value.slice(0, 80))
+                  }
+                  onSubmitEditing={saveDischargeNote}
+                  returnKeyType="done"
+                  blurOnSubmit
+                  placeholder={
+                    dischargeNoteTarget === "consistency"
+                      ? "Örn: jelimsi, pütürlü..."
+                      : "Örn: açık pembe, bej..."
+                  }
+                  placeholderTextColor={COLORS.textMuted}
+                  maxLength={80}
+                />
+
+                <Text style={styles.dischargeNoteModalCounter}>
+                  {dischargeNoteDraft.length}/80
+                </Text>
+
+                <View style={styles.dischargeNoteModalActions}>
+                  <Pressable
+                    style={styles.dischargeNoteModalCancelButton}
+                    onPress={closeDischargeNoteEditor}
+                  >
+                    <Text style={styles.dischargeNoteModalCancelText}>
+                      Vazgeç
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.dischargeNoteModalSaveButton}
+                    onPress={saveDischargeNote}
+                  >
+                    <Text style={styles.dischargeNoteModalSaveText}>
+                      ✓ Kaydet
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
         <ScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         >
           <Pressable onPress={handleTitleSecretTap}>
             <Text style={styles.pageTitle}>Regl Takvimi</Text>
@@ -2327,6 +2681,190 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
                 );
               })}
             </View>
+
+            <View style={styles.dischargeDivider} />
+
+            <Text style={styles.dischargeTitle}>Akıntı takibi</Text>
+            <Text style={styles.dischargeDescription}>
+              Bugün gözlemlediğin kadarını seçebilirsin. Her alanı doldurmak
+              zorunda değilsin.
+            </Text>
+
+            <Text style={styles.inputLabel}>Doku / kıvam</Text>
+            <View style={styles.dischargeOptionsWrap}>
+              {DISCHARGE_CONSISTENCY_OPTIONS.map((option) => {
+                const selected = todayDischarge.consistency === option.key;
+                return (
+                  <Pressable
+                    key={option.key}
+                    style={[
+                      styles.dischargeChip,
+                      selected && styles.dischargeChipSelected,
+                    ]}
+                    onPress={() =>
+                      handleSelectDischargeConsistency(option.key)
+                    }
+                  >
+                    <Text
+                      style={[
+                        styles.dischargeChipText,
+                        selected && styles.dischargeChipTextSelected,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {todayDischarge.consistency === "other" ? (
+              <View style={styles.dischargeSavedNoteCard}>
+                <View style={styles.dischargeSavedNoteTextWrap}>
+                  <Text style={styles.dischargeSavedNoteLabel}>
+                    Kendi tanımın
+                  </Text>
+                  <Text style={styles.dischargeSavedNoteValue}>
+                    {todayDischarge.consistencyNote?.trim()
+                      ? todayDischarge.consistencyNote
+                      : "Henüz bir tanım eklemedin."}
+                  </Text>
+                  {todayDischarge.consistencyNote?.trim() ? (
+                    <Text style={styles.dischargeSavedNoteStatus}>
+                      ✓ Kaydedildi
+                    </Text>
+                  ) : null}
+                </View>
+
+                <Pressable
+                  style={styles.dischargeSavedNoteAction}
+                  onPress={() => openDischargeNoteEditor("consistency")}
+                >
+                  <Text style={styles.dischargeSavedNoteActionText}>
+                    {todayDischarge.consistencyNote?.trim()
+                      ? "Düzenle"
+                      : "Tanım ekle"}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {todayDischarge.consistency !== "none" ? (
+              <>
+                <Text style={styles.inputLabel}>Miktar</Text>
+                <View style={styles.dischargeOptionsWrap}>
+                  {DISCHARGE_AMOUNT_OPTIONS.map((option) => {
+                    const selected = todayDischarge.amount === option.key;
+                    return (
+                      <Pressable
+                        key={option.key}
+                        style={[
+                          styles.dischargeChip,
+                          selected && styles.dischargeChipSelected,
+                        ]}
+                        onPress={() => handleSelectDischargeAmount(option.key)}
+                      >
+                        <Text
+                          style={[
+                            styles.dischargeChipText,
+                            selected && styles.dischargeChipTextSelected,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.inputLabel}>Renk</Text>
+                <View style={styles.dischargeOptionsWrap}>
+                  {DISCHARGE_COLOR_OPTIONS.map((option) => {
+                    const selected = todayDischarge.color === option.key;
+                    return (
+                      <Pressable
+                        key={option.key}
+                        style={[
+                          styles.dischargeChip,
+                          selected && styles.dischargeChipSelected,
+                        ]}
+                        onPress={() => handleSelectDischargeColor(option.key)}
+                      >
+                        <Text
+                          style={[
+                            styles.dischargeChipText,
+                            selected && styles.dischargeChipTextSelected,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {todayDischarge.color === "other" ? (
+                  <View style={styles.dischargeSavedNoteCard}>
+                    <View style={styles.dischargeSavedNoteTextWrap}>
+                      <Text style={styles.dischargeSavedNoteLabel}>
+                        Kendi tanımın
+                      </Text>
+                      <Text style={styles.dischargeSavedNoteValue}>
+                        {todayDischarge.colorNote?.trim()
+                          ? todayDischarge.colorNote
+                          : "Henüz bir tanım eklemedin."}
+                      </Text>
+                      {todayDischarge.colorNote?.trim() ? (
+                        <Text style={styles.dischargeSavedNoteStatus}>
+                          ✓ Kaydedildi
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <Pressable
+                      style={styles.dischargeSavedNoteAction}
+                      onPress={() => openDischargeNoteEditor("color")}
+                    >
+                      <Text style={styles.dischargeSavedNoteActionText}>
+                        {todayDischarge.colorNote?.trim()
+                          ? "Düzenle"
+                          : "Tanım ekle"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                <Text style={styles.inputLabel}>Koku</Text>
+                <View style={styles.dischargeOptionsWrap}>
+                  {DISCHARGE_ODOR_OPTIONS.map((option) => {
+                    const selected = todayDischarge.odor === option.key;
+                    return (
+                      <Pressable
+                        key={option.key}
+                        style={[
+                          styles.dischargeChip,
+                          selected && styles.dischargeChipSelected,
+                        ]}
+                        onPress={() => handleSelectDischargeOdor(option.key)}
+                      >
+                        <Text
+                          style={[
+                            styles.dischargeChipText,
+                            selected && styles.dischargeChipTextSelected,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            ) : null}
+
+            <Text style={styles.dischargeFootnote}>
+              Bu alan kişisel gözlem içindir; tıbbi tanı koymaz.
+            </Text>
           </View>
 
           <View style={styles.card}>
@@ -2996,6 +3534,222 @@ const styles = StyleSheet.create({
   symptomChipTextSelected: {
     fontWeight: "700",
     color: COLORS.text,
+  },
+
+  dischargeDivider: {
+    height: 1,
+    backgroundColor: COLORS.border,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+
+  dischargeTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+
+  dischargeDescription: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: COLORS.textMuted,
+    marginBottom: 6,
+  },
+
+  dischargeOptionsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+
+  dischargeChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: "#FFFDFC",
+    marginRight: 8,
+    marginBottom: 8,
+  },
+
+  dischargeChipSelected: {
+    backgroundColor: "#F2EBFA",
+    borderColor: "#D3C2E9",
+  },
+
+  dischargeChipText: {
+    fontSize: 13,
+    color: COLORS.textSoft,
+  },
+
+  dischargeChipTextSelected: {
+    color: COLORS.text,
+    fontWeight: "700",
+  },
+
+  dischargeSavedNoteCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "#E5D9EE",
+    backgroundColor: "#FBF8FD",
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 2,
+    marginBottom: 10,
+  },
+
+  dischargeSavedNoteTextWrap: {
+    flex: 1,
+    paddingRight: 10,
+  },
+
+  dischargeSavedNoteLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: COLORS.textMuted,
+    marginBottom: 3,
+  },
+
+  dischargeSavedNoteValue: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: COLORS.text,
+    fontWeight: "600",
+  },
+
+  dischargeSavedNoteStatus: {
+    marginTop: 4,
+    fontSize: 10,
+    fontWeight: "700",
+    color: COLORS.primaryDark,
+  },
+
+  dischargeSavedNoteAction: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: "#F2EBFA",
+  },
+
+  dischargeSavedNoteActionText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: COLORS.primaryDark,
+  },
+
+  dischargeNoteModalKeyboard: {
+    flex: 1,
+  },
+
+  dischargeNoteModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.28)",
+    justifyContent: "flex-end",
+  },
+
+  dischargeNoteModalCard: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: Platform.OS === "ios" ? 28 : 20,
+  },
+
+  dischargeNoteModalHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 16,
+  },
+
+  dischargeNoteModalHeaderText: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  dischargeNoteModalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+
+  dischargeNoteModalDescription: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: COLORS.textMuted,
+  },
+
+  dischargeNoteModalClose: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.primaryDark,
+  },
+
+  dischargeNoteModalInput: {
+    borderWidth: 1.5,
+    borderColor: "#E3D5E9",
+    borderRadius: 14,
+    backgroundColor: "#FFFDFC",
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    fontSize: 15,
+    color: COLORS.text,
+  },
+
+  dischargeNoteModalCounter: {
+    marginTop: 5,
+    fontSize: 10,
+    color: COLORS.textMuted,
+    textAlign: "right",
+  },
+
+  dischargeNoteModalActions: {
+    flexDirection: "row",
+    marginTop: 14,
+  },
+
+  dischargeNoteModalCancelButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+  },
+
+  dischargeNoteModalCancelText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.textSoft,
+  },
+
+  dischargeNoteModalSaveButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+
+  dischargeNoteModalSaveText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+
+  dischargeFootnote: {
+    marginTop: 6,
+    fontSize: 11,
+    lineHeight: 17,
+    color: COLORS.textMuted,
   },
 
   settingsTopRow: {
