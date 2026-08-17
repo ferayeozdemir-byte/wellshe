@@ -22,6 +22,12 @@ import {
 } from "react-native";
 import { Calendar } from "react-native-calendars";
 import AdBanner from "../../components/AdBanner";
+import {
+  CYCLE_DATA_V1_KEY,
+  loadCycleDataV1,
+  syncCycleDataV1,
+  type CyclePredictionSnapshot,
+} from "../../lib/cycleDataStorage";
 
 import {
   getCyclePhaseInfo,
@@ -120,6 +126,7 @@ const PERIOD_DEBUG_KEYS = [
   "periodSettings",
   "period_logs",
   "periodLogs",
+  CYCLE_DATA_V1_KEY,
 ];
 
 // ✅ Default ayarlar
@@ -1038,6 +1045,68 @@ export default function PeriodScreen() {
       : `Son regl: ${lastStartTR}`
     : "Son regl tarihi henüz yok";
 
+  const buildPredictionSnapshot = (
+    baseLogs: PeriodLog[],
+    baseSettings: PeriodSettings | null
+  ): CyclePredictionSnapshot | null => {
+    const normalized = normalizeLogs(baseLogs);
+    const effective = getEffectiveSettings(baseSettings, normalized);
+
+    if (!effective || normalized.length === 0) return null;
+
+    const predictedStartDate = getNextPeriodStart(normalized, effective);
+    const basedOnPeriodStartDate =
+      normalized[normalized.length - 1]?.startDate ?? null;
+
+    if (!predictedStartDate || !basedOnPeriodStartDate) return null;
+
+    return {
+      generatedAt: new Date().toISOString(),
+      basedOnPeriodStartDate,
+      predictedStartDate,
+      averageCycleLengthUsed: effective.averageCycleLength,
+      periodLengthUsed: effective.periodLength,
+      algorithmVersion: "period-prediction-v1",
+    };
+  };
+
+  const syncCycleArchive = async (
+    baseSettings: PeriodSettings | null,
+    baseLogs: PeriodLog[],
+    baseDailyLogs: MoodData,
+    options?: { clearPredictionHistory?: boolean }
+  ) => {
+    try {
+      await syncCycleDataV1({
+        settings: baseSettings,
+        periods: normalizeLogs(baseLogs),
+        dailyLogs: baseDailyLogs,
+        predictionSnapshot: buildPredictionSnapshot(
+          baseLogs,
+          baseSettings
+        ),
+        clearPredictionHistory:
+          options?.clearPredictionHistory ?? false,
+      });
+    } catch (e) {
+      console.log("syncCycleArchive error:", e);
+    }
+  };
+
+  const persistDailyData = (nextDailyLogs: MoodData) => {
+    void Promise.all([
+      AsyncStorage.setItem(
+        MOOD_DATA_KEY,
+        JSON.stringify(nextDailyLogs)
+      ),
+      syncCycleArchive(
+        settings ?? DEFAULT_SETTINGS,
+        logs,
+        nextDailyLogs
+      ),
+    ]);
+  };
+
   const buildDebugDump = async () => {
     try {
       const pairs = await Promise.all(
@@ -1150,47 +1219,75 @@ export default function PeriodScreen() {
       PERIOD_SETTINGS_KEY,
       JSON.stringify(DEFAULT_SETTINGS)
     );
+    await syncCycleArchive(DEFAULT_SETTINGS, logs, moodData);
     return DEFAULT_SETTINGS;
   };
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [settingsJson, logsJson, moodJson] = await Promise.all([
-          AsyncStorage.getItem(PERIOD_SETTINGS_KEY),
-          AsyncStorage.getItem(PERIOD_LOGS_KEY),
-          AsyncStorage.getItem(MOOD_DATA_KEY),
-        ]);
+        const [settingsJson, logsJson, moodJson, cycleArchive] =
+          await Promise.all([
+            AsyncStorage.getItem(PERIOD_SETTINGS_KEY),
+            AsyncStorage.getItem(PERIOD_LOGS_KEY),
+            AsyncStorage.getItem(MOOD_DATA_KEY),
+            loadCycleDataV1(),
+          ]);
 
-        if (settingsJson) {
-          const parsed: PeriodSettings = JSON.parse(settingsJson);
-          setSettings(parsed);
-          setInputAverageCycle(String(parsed.averageCycleLength));
-          setInputPeriodLength(String(parsed.periodLength));
-        } else {
-          setSettings(DEFAULT_SETTINGS);
-          setInputAverageCycle(String(DEFAULT_SETTINGS.averageCycleLength));
-          setInputPeriodLength(String(DEFAULT_SETTINGS.periodLength));
+        const resolvedSettings: PeriodSettings = settingsJson
+          ? JSON.parse(settingsJson)
+          : cycleArchive?.settings ?? DEFAULT_SETTINGS;
+
+        const resolvedLogs: PeriodLog[] = logsJson
+          ? normalizeLogs(JSON.parse(logsJson))
+          : normalizeLogs(
+              (cycleArchive?.periods as PeriodLog[] | undefined) ?? []
+            );
+
+        const resolvedMood: MoodData = moodJson
+          ? JSON.parse(moodJson)
+          : ((cycleArchive?.dailyLogs as MoodData | undefined) ?? {});
+
+        setSettings(resolvedSettings);
+        setInputAverageCycle(String(resolvedSettings.averageCycleLength));
+        setInputPeriodLength(String(resolvedSettings.periodLength));
+        setLogs(resolvedLogs);
+        setMoodData(resolvedMood);
+
+        if (!settingsJson) {
           await AsyncStorage.setItem(
             PERIOD_SETTINGS_KEY,
-            JSON.stringify(DEFAULT_SETTINGS)
+            JSON.stringify(resolvedSettings)
           );
         }
 
-        if (logsJson) {
-          const parsedLogs: PeriodLog[] = normalizeLogs(JSON.parse(logsJson));
-          setLogs(parsedLogs);
-          if (parsedLogs.length > 0) {
-            setInputLastStartDate(
-              formatLocalISODateTR(parsedLogs[parsedLogs.length - 1].startDate)
-            );
-          }
+        if (!logsJson && resolvedLogs.length > 0) {
+          await AsyncStorage.setItem(
+            PERIOD_LOGS_KEY,
+            JSON.stringify(resolvedLogs)
+          );
         }
 
-        if (moodJson) {
-          const parsedMood: MoodData = JSON.parse(moodJson);
-          setMoodData(parsedMood);
+        if (!moodJson && Object.keys(resolvedMood).length > 0) {
+          await AsyncStorage.setItem(
+            MOOD_DATA_KEY,
+            JSON.stringify(resolvedMood)
+          );
         }
+
+        if (resolvedLogs.length > 0) {
+          setInputLastStartDate(
+            formatLocalISODateTR(
+              resolvedLogs[resolvedLogs.length - 1].startDate
+            )
+          );
+        }
+
+        await syncCycleArchive(
+          resolvedSettings,
+          resolvedLogs,
+          resolvedMood
+        );
       } catch (e) {
         console.log("Period data load error:", e);
       } finally {
@@ -1362,6 +1459,7 @@ export default function PeriodScreen() {
     const normalized = normalizeLogs(nextLogs);
     setLogs(normalized);
     await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(normalized));
+    await syncCycleArchive(nextSettings, normalized, moodData);
 
     if (normalized.length === 0) {
       await clearCycleNotifications();
@@ -1377,6 +1475,11 @@ export default function PeriodScreen() {
     const normalized = normalizeLogs(nextLogs);
     setLogs(normalized);
     await AsyncStorage.setItem(PERIOD_LOGS_KEY, JSON.stringify(normalized));
+    await syncCycleArchive(
+      settings ?? DEFAULT_SETTINGS,
+      normalized,
+      moodData
+    );
   };
 
   const savePeriodEnd = async (
@@ -1720,6 +1823,12 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
       await AsyncStorage.removeItem(PERIOD_LOGS_KEY);
       await clearCycleNotifications();
       setLogs([]);
+      await syncCycleArchive(
+        settings ?? DEFAULT_SETTINGS,
+        [],
+        moodData,
+        { clearPredictionHistory: true }
+      );
       setInputLastStartDate("");
       setSettingsModalVisible(false);
 
@@ -1841,6 +1950,8 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
       await scheduleCycleNotifications(logs, newSettings, { silent: true });
     }
 
+    await syncCycleArchive(newSettings, effectiveLogs, moodData);
+
     setSettingsModalVisible(false);
     Alert.alert("Kaydedildi", "Döngü ayarların güncellendi.");
   };
@@ -1939,7 +2050,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
       const day: MoodDay = next[todayKey] ?? {};
       day.mood = level;
       next[todayKey] = day;
-      void AsyncStorage.setItem(MOOD_DATA_KEY, JSON.stringify(next));
+      persistDailyData(next);
       return next;
     });
   };
@@ -1961,7 +2072,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
         },
       };
 
-      void AsyncStorage.setItem(MOOD_DATA_KEY, JSON.stringify(next));
+      persistDailyData(next);
       return next;
     });
   };
@@ -1985,7 +2096,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
       // Şimdilik mevcut günlük veri anahtarında lokal tutulur.
       // Sonraki migration adımında mood + semptom + akıntı birlikte
       // wellshe_cycle_daily_logs_v1 yapısına taşınacak.
-      void AsyncStorage.setItem(MOOD_DATA_KEY, JSON.stringify(next));
+      persistDailyData(next);
       return next;
     });
   };
@@ -2164,7 +2275,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
         [todayKey]: nextDay,
       };
 
-      void AsyncStorage.setItem(MOOD_DATA_KEY, JSON.stringify(next));
+      persistDailyData(next);
       return next;
     });
   };
