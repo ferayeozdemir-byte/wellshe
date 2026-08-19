@@ -106,6 +106,7 @@ type MoveReminderSettings = {
 type CyclePhase =
   | "menstruation"
   | "follicular"
+  | "fertile"
   | "ovulation"
   | "luteal"
   | "unknown";
@@ -401,18 +402,21 @@ const MAX_MOVE_REMINDER_TIMES = 8;
 // 🔁 Faz anahtarından tek cümlelik mini öneri (Home kartı için)
 function getPhaseOneLinerFromKey(phaseKey: CyclePhase): string {
   if (phaseKey === "menstruation") {
-    return "Regl fazındasın. Tempoyu biraz düşürmek, sıcak içecekler hazırlamak ve yumuşak dinlenme alanları yaratmak bedenine çok iyi gelebilir.";
+    return "Bugün bedeninin temposuna göre ilerle. İhtiyacına göre biraz yavaşlamak, sıcak bir duş almak ya da dinlenmeye alan açmak iyi gelebilir.";
   }
   if (phaseKey === "follicular") {
-    return "Folikül fazındasın. Yeni başlangıçlar ve plan yapmak, hafif hareketle rutine dönmek için destekleyici bir dönemdesin.";
+    return "Bugün enerjin neye izin veriyorsa ona göre ilerle. Yeni bir şeye başlamak istiyorsan küçük ve keyifli bir adım seçebilirsin.";
+  }
+  if (phaseKey === "fertile") {
+    return "Bugün planlarını ritmine göre şekillendir. Kendini iyi hissettiren şeylere biraz daha alan açabilirsin.";
   }
   if (phaseKey === "ovulation") {
-    return "Ovülasyon fazındasın. Enerjinin yükseldiği bu dönemde sosyalleşmek ve üretmek için kendine alan açabilirsin.";
+    return "Bugün enerjin neye yetiyorsa onu seç. Sosyalleşmek de kendi alanında kalmak da tamamen senin ritmin.";
   }
   if (phaseKey === "luteal") {
-    return "Luteal fazdasın. Enerjini korumak için sınır çizmen, yapılacakları sadeleştirmen ve dinlenmeye alan açman çok kıymetli.";
+    return "Gününü biraz sadeleştirmek, küçük molalar vermek ve sana keyif veren rutinlere dönmek iyi gelebilir.";
   }
-  return "Bugün bedenini gözlemleyip ihtiyacına göre küçük bir iyilik yapman çok değerli.";
+  return "Bugün kendini nasıl hissediyorsan gününü de ona göre şekillendir. Küçük bir iyilik bile yeter.";
 }
 
 function getTodayMotivation(): string {
@@ -2454,7 +2458,7 @@ export default function HomeScreen() {
                 <Text style={styles.periodTitle}>Döngün</Text>
                 <Text style={styles.phaseMiniTitle}>Bugün bedenin ne söylüyor?</Text>
                 <Text style={styles.phaseTitleText}>{cycleInfo.phaseTitle}</Text>
-                <Text style={styles.periodText}>{cycleInfo.phaseDescription}</Text>
+                <Text style={styles.periodText}>{phaseOneLiner}</Text>
 
                 <TouchableOpacity
                   style={styles.periodButton}

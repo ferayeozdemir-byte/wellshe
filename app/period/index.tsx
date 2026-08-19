@@ -31,6 +31,7 @@ import {
 
 import {
   getCyclePhaseInfo,
+  getEffectivePeriodSettings,
   getNextPeriodStart,
   getOvulationInfo,
   isFutureISODate,
@@ -97,11 +98,14 @@ type BleedingObservation = {
   type: BleedingType;
 };
 
+type SexualActivity = "none" | "protected" | "unprotected";
+
 type MoodDay = {
   mood?: MoodLevel;
   symptoms?: string[];
   discharge?: DischargeObservation;
   bleeding?: BleedingObservation;
+  sexualActivity?: SexualActivity;
 };
 
 type MoodData = Record<string, MoodDay>;
@@ -236,6 +240,15 @@ const BLEEDING_OPTIONS: {
   { key: "light", label: "Hafif" },
   { key: "medium", label: "Orta" },
   { key: "heavy", label: "Yoğun" },
+];
+
+const SEXUAL_ACTIVITY_OPTIONS: {
+  key: SexualActivity;
+  label: string;
+}[] = [
+  { key: "none", label: "İlişki olmadı" },
+  { key: "protected", label: "Korunarak ilişki" },
+  { key: "unprotected", label: "Korunmadan ilişki" },
 ];
 
 function safeJsonParse<T = any>(raw: string | null): T | null {
@@ -514,57 +527,12 @@ function replaceLatestPeriodLog(logs: PeriodLog[], startDate: string): PeriodLog
   return replacePeriodStartLog(normalized, latest.startDate, startDate);
 }
 
-function getLearnedCycleLength(logs: PeriodLog[], fallback: number): number {
-  const normalized = normalizeLogs(logs);
-
-  // Çok erken öğrenmeye başlamasın.
-  if (normalized.length < 3) return fallback;
-
-  const intervals: number[] = [];
-
-  for (let i = 1; i < normalized.length; i++) {
-    const prev = fromLocalISODate(normalized[i - 1].startDate);
-    const curr = fromLocalISODate(normalized[i].startDate);
-    const diff = differenceInDays(curr, prev);
-
-    // Aşırı kısa / aşırı uzun farklar genelde hatalı girişten gelir.
-    if (diff >= 15 && diff <= 60) {
-      intervals.push(diff);
-    }
-  }
-
-  // En az 2 tamamlanmış aralık olmadan öğrenme yapmasın.
-  if (intervals.length < 2) return fallback;
-
-  const recentIntervals = intervals.slice(-6);
-  const average =
-    recentIntervals.reduce((sum, value) => sum + value, 0) /
-    recentIntervals.length;
-
-  return Math.round(average);
-}
-
-function getEffectiveSettings(
-  settings: PeriodSettings | null,
-  logs: PeriodLog[]
-): PeriodSettings | null {
-  if (!settings) return null;
-
-  return {
-    ...settings,
-    averageCycleLength: getLearnedCycleLength(
-      logs,
-      settings.averageCycleLength || DEFAULT_SETTINGS.averageCycleLength
-    ),
-  };
-}
-
 function getLateState(
   logs: PeriodLog[],
   settings: PeriodSettings | null,
   todayIso: string
 ): LateState {
-  const effectiveSettings = getEffectiveSettings(settings, logs);
+  const effectiveSettings = getEffectivePeriodSettings(settings, logs);
   if (!effectiveSettings || logs.length === 0) {
     return {
       isLate: false,
@@ -602,7 +570,7 @@ function getMarkedDates(
   settings: PeriodSettings | null
 ): Record<string, any> {
   const marked: Record<string, any> = {};
-  const effectiveSettings = getEffectiveSettings(settings, logs);
+  const effectiveSettings = getEffectivePeriodSettings(settings, logs);
   if (!effectiveSettings) return marked;
 
   const periodLength = effectiveSettings.periodLength;
@@ -869,6 +837,7 @@ export default function PeriodScreen() {
   const [titleTapTimer, setTitleTapTimer] = useState<any>(null);
 
   const todayKey = toLocalISODate(new Date());
+  const [selectedDailyDate, setSelectedDailyDate] = useState(todayKey);
 
   useEffect(() => {
     void trackEvent({
@@ -889,17 +858,39 @@ export default function PeriodScreen() {
     }
   };
 
-  const todayMood = moodData[todayKey]?.mood;
-  const todaySymptoms = moodData[todayKey]?.symptoms ?? [];
-  const todayDischarge = moodData[todayKey]?.discharge ?? {};
-  const todayBleeding = moodData[todayKey]?.bleeding;
+  const selectedMood = moodData[selectedDailyDate]?.mood;
+  const selectedSymptoms = moodData[selectedDailyDate]?.symptoms ?? [];
+  const selectedDischarge = moodData[selectedDailyDate]?.discharge ?? {};
+  const selectedBleeding = moodData[selectedDailyDate]?.bleeding;
+  const selectedSexualActivity =
+    moodData[selectedDailyDate]?.sexualActivity;
+
+  const isSelectedDailyToday = selectedDailyDate === todayKey;
+  const selectedDailyDateLabel = fromLocalISODate(
+    selectedDailyDate
+  ).toLocaleDateString("tr-TR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 
   const normalizedLogs = useMemo(() => normalizeLogs(logs), [logs]);
 
   const effectiveSettings = useMemo(
-    () => getEffectiveSettings(settings, normalizedLogs),
+    () => getEffectivePeriodSettings(settings, normalizedLogs),
     [settings, normalizedLogs]
   );
+
+  const isSelectedDateInPeriod = useMemo(() => {
+    const periodLength =
+      effectiveSettings?.periodLength ?? DEFAULT_SETTINGS.periodLength;
+
+    return !!findPeriodLogForDate(
+      normalizedLogs,
+      selectedDailyDate,
+      periodLength
+    );
+  }, [normalizedLogs, selectedDailyDate, effectiveSettings]);
 
   const learnedCycleLength =
     effectiveSettings?.averageCycleLength ?? DEFAULT_SETTINGS.averageCycleLength;
@@ -1054,7 +1045,7 @@ export default function PeriodScreen() {
     baseSettings: PeriodSettings | null
   ): CyclePredictionSnapshot | null => {
     const normalized = normalizeLogs(baseLogs);
-    const effective = getEffectiveSettings(baseSettings, normalized);
+    const effective = getEffectivePeriodSettings(baseSettings, normalized);
 
     if (!effective || normalized.length === 0) return null;
 
@@ -1352,7 +1343,7 @@ export default function PeriodScreen() {
         return;
       }
 
-      const effective = getEffectiveSettings(baseSettings, baseLogs);
+      const effective = getEffectivePeriodSettings(baseSettings, baseLogs);
       const next = getNextPeriodStart(baseLogs, effective);
       if (!effective || !next) {
         if (!silent) {
@@ -2134,12 +2125,52 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
     }
   };
 
+  const goToDailyDate = (dateKey: string) => {
+    if (dateKey > todayKey) return;
+
+    Keyboard.dismiss();
+    setDischargeNoteTarget(null);
+    setDischargeNoteDraft("");
+    setSelectedDailyDate(dateKey);
+  };
+
+  const shiftDailyDate = (days: number) => {
+    const next = fromLocalISODate(selectedDailyDate);
+    next.setDate(next.getDate() + days);
+
+    const nextKey = toLocalISODate(next);
+    if (nextKey > todayKey) return;
+
+    goToDailyDate(nextKey);
+  };
+
+  const handleSelectSexualActivity = (activity: SexualActivity) => {
+    setMoodData((prev: MoodData) => {
+      const currentDay = prev[selectedDailyDate] ?? {};
+      const nextDay: MoodDay = { ...currentDay };
+
+      if (currentDay.sexualActivity === activity) {
+        delete nextDay.sexualActivity;
+      } else {
+        nextDay.sexualActivity = activity;
+      }
+
+      const next: MoodData = {
+        ...prev,
+        [selectedDailyDate]: nextDay,
+      };
+
+      persistDailyData(next);
+      return next;
+    });
+  };
+
   const handleSelectMood = async (level: MoodLevel) => {
     setMoodData((prev: MoodData) => {
       const next: MoodData = { ...prev };
-      const day: MoodDay = next[todayKey] ?? {};
+      const day: MoodDay = next[selectedDailyDate] ?? {};
       day.mood = level;
-      next[todayKey] = day;
+      next[selectedDailyDate] = day;
       persistDailyData(next);
       return next;
     });
@@ -2147,7 +2178,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
 
   const handleToggleSymptom = async (symptom: string) => {
     setMoodData((prev: MoodData) => {
-      const currentDay = prev[todayKey] ?? {};
+      const currentDay = prev[selectedDailyDate] ?? {};
       const currentList = currentDay.symptoms ?? [];
       const exists = currentList.includes(symptom);
       const newList = exists
@@ -2156,7 +2187,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
 
       const next: MoodData = {
         ...prev,
-        [todayKey]: {
+        [selectedDailyDate]: {
           ...currentDay,
           symptoms: newList,
         },
@@ -2167,25 +2198,22 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
     });
   };
 
-  const updateTodayDischarge = (
+  const updateSelectedDateDischarge = (
     updater: (current: DischargeObservation) => DischargeObservation
   ) => {
     setMoodData((prev: MoodData) => {
-      const currentDay = prev[todayKey] ?? {};
+      const currentDay = prev[selectedDailyDate] ?? {};
       const currentDischarge = currentDay.discharge ?? {};
       const nextDischarge = updater(currentDischarge);
 
       const next: MoodData = {
         ...prev,
-        [todayKey]: {
+        [selectedDailyDate]: {
           ...currentDay,
           discharge: nextDischarge,
         },
       };
 
-      // Şimdilik mevcut günlük veri anahtarında lokal tutulur.
-      // Sonraki migration adımında mood + semptom + akıntı birlikte
-      // wellshe_cycle_daily_logs_v1 yapısına taşınacak.
       persistDailyData(next);
       return next;
     });
@@ -2194,8 +2222,8 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
   const openDischargeNoteEditor = (target: DischargeNoteTarget) => {
     const existingNote =
       target === "consistency"
-        ? todayDischarge.consistencyNote
-        : todayDischarge.colorNote;
+        ? selectedDischarge.consistencyNote
+        : selectedDischarge.colorNote;
 
     setDischargeNoteDraft(existingNote ?? "");
     setDischargeNoteTarget(target);
@@ -2212,7 +2240,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
 
     const value = dischargeNoteDraft.trim();
 
-    updateTodayDischarge((current) => {
+    updateSelectedDateDischarge((current) => {
       if (dischargeNoteTarget === "consistency") {
         const next = {
           ...current,
@@ -2252,13 +2280,13 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
   ) => {
     if (
       consistency === "other" &&
-      todayDischarge.consistency === "other"
+      selectedDischarge.consistency === "other"
     ) {
       openDischargeNoteEditor("consistency");
       return;
     }
 
-    updateTodayDischarge((current) => {
+    updateSelectedDateDischarge((current) => {
       if (current.consistency === consistency) {
         const next = { ...current };
         delete next.consistency;
@@ -2288,7 +2316,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
   };
 
   const handleSelectDischargeAmount = (amount: DischargeAmount) => {
-    updateTodayDischarge((current) => {
+    updateSelectedDateDischarge((current) => {
       const next =
         current.consistency === "none" ? {} : { ...current };
 
@@ -2303,12 +2331,12 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
   };
 
   const handleSelectDischargeColor = (color: DischargeColor) => {
-    if (color === "other" && todayDischarge.color === "other") {
+    if (color === "other" && selectedDischarge.color === "other") {
       openDischargeNoteEditor("color");
       return;
     }
 
-    updateTodayDischarge((current) => {
+    updateSelectedDateDischarge((current) => {
       const next =
         current.consistency === "none" ? {} : { ...current };
 
@@ -2331,7 +2359,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
   };
 
   const handleSelectDischargeOdor = (odor: DischargeOdor) => {
-    updateTodayDischarge((current) => {
+    updateSelectedDateDischarge((current) => {
       const next =
         current.consistency === "none" ? {} : { ...current };
 
@@ -2347,7 +2375,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
 
   const handleSelectBleeding = (type: BleedingType) => {
     setMoodData((prev: MoodData) => {
-      const currentDay = prev[todayKey] ?? {};
+      const currentDay = prev[selectedDailyDate] ?? {};
       const isAlreadySelected = currentDay.bleeding?.type === type;
 
       const nextDay: MoodDay = {
@@ -2362,7 +2390,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
 
       const next: MoodData = {
         ...prev,
-        [todayKey]: nextDay,
+        [selectedDailyDate]: nextDay,
       };
 
       persistDailyData(next);
@@ -2792,7 +2820,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
 
           <View style={styles.infoListCard}>
             <View style={styles.infoListRow}>
-              <Text style={styles.infoListLabel}>Ovülasyon</Text>
+              <Text style={styles.infoListLabel}>Tahmini ovülasyon</Text>
               <Text style={styles.infoListValue}>
                 {ovulationDateTR ?? "Henüz hesaplanamıyor"}
               </Text>
@@ -2801,20 +2829,26 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
             <View style={styles.infoDivider} />
 
             <View style={styles.infoListRow}>
-              <Text style={styles.infoListLabel}>Verimli günler</Text>
+              <Text style={styles.infoListLabel}>Tahmini verimli günler</Text>
               <Text style={styles.infoListValue}>
                 {fertileRangeTR ?? "Henüz hesaplanamıyor"}
               </Text>
             </View>
           </View>
 
+          <Text style={styles.fertilityEstimateNote}>
+            Bu tarihler yalnızca döngü kayıtlarına dayalı tahminlerdir;
+            ovülasyonu doğrulamaz. Gebelikten korunmak için tek başına bu
+            tahminlere güvenilmemelidir.
+          </Text>
+
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <View style={styles.cardHeaderTextWrap}>
                 <Text style={styles.cardTitle}>Takvim Görünümü</Text>
                 <Text style={styles.cardDescription}>
-                  Regl kayıtların, önümüzdeki tahmini regl günlerin ve verimli
-                  günlerin burada gösterilir.
+                  Regl kayıtların, önümüzdeki tahmini regl günlerin ve tahmini
+                  verimli günlerin burada gösterilir.
                 </Text>
                 <Text style={styles.calendarEditHint}>
                   Başlangıç veya bitiş gününü düzeltmek ya da kaydı silmek için
@@ -2878,8 +2912,8 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
             <View style={styles.legendWrap}>
               <LegendItem type="period" label="Regl dönemi" />
               <LegendItem type="predictedPeriod" label="Tahmini regl" />
-              <LegendItem type="fertile" label="Verimli dönem" />
-              <LegendItem type="ovulation" label="Ovülasyon" />
+              <LegendItem type="fertile" label="Tahmini verimli dönem" />
+              <LegendItem type="ovulation" label="Tahmini ovülasyon" />
               <LegendItem type="today" label="Bugün" />
             </View>
           </View>
@@ -2898,12 +2932,65 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Bugünkü Modun & Semptomların</Text>
+            <Text style={styles.cardTitle}>Günlük Döngü Kaydın</Text>
+            <Text style={styles.dailyTrackingDescription}>
+              Bugün nasıl hissettiğini ve bedenindeki değişimleri kaydet. Zaman
+              içinde sana özgü tekrar eden örüntüleri fark etmen kolaylaşabilir.
+            </Text>
 
-            <Text style={styles.inputLabel}>Bugün modun nasıl?</Text>
+            <View style={styles.dailyDateNavigator}>
+              <Pressable
+                style={styles.dailyDateArrowButton}
+                onPress={() => shiftDailyDate(-1)}
+                accessibilityLabel="Önceki gün"
+              >
+                <Text style={styles.dailyDateArrow}>‹</Text>
+              </Pressable>
+
+              <View style={styles.dailyDateCenter}>
+                <Text style={styles.dailyDateLabel}>
+                  {selectedDailyDateLabel}
+                </Text>
+                <Text style={styles.dailyDateMeta}>
+                  {isSelectedDailyToday ? "Bugün" : "Geçmiş gün kaydı"}
+                </Text>
+              </View>
+
+              <Pressable
+                style={[
+                  styles.dailyDateArrowButton,
+                  isSelectedDailyToday &&
+                    styles.dailyDateArrowButtonDisabled,
+                ]}
+                onPress={() => shiftDailyDate(1)}
+                disabled={isSelectedDailyToday}
+                accessibilityLabel="Sonraki gün"
+              >
+                <Text
+                  style={[
+                    styles.dailyDateArrow,
+                    isSelectedDailyToday &&
+                      styles.dailyDateArrowDisabled,
+                  ]}
+                >
+                  ›
+                </Text>
+              </Pressable>
+            </View>
+
+            {!isSelectedDailyToday ? (
+              <Pressable
+                style={styles.dailyTodayButton}
+                onPress={() => goToDailyDate(todayKey)}
+              >
+                <Text style={styles.dailyTodayButtonText}>Bugüne dön</Text>
+              </Pressable>
+            ) : null}
+
+            <Text style={styles.inputLabel}>Modun nasıl?</Text>
             <View style={styles.moodRow}>
               {MOOD_OPTIONS.map((opt) => {
-                const selected = todayMood === opt.key;
+                const selected = selectedMood === opt.key;
                 return (
                   <Pressable
                     key={opt.key}
@@ -2927,12 +3014,12 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
             </View>
 
             <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-              Bugün bedeninde neler var?
+              Bedeninde neler var?
             </Text>
 
             <View style={styles.symptomContainer}>
               {SYMPTOMS.map((symptom) => {
-                const selected = todaySymptoms.includes(symptom);
+                const selected = selectedSymptoms.includes(symptom);
                 return (
                   <Pressable
                     key={symptom}
@@ -2955,18 +3042,61 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
               })}
             </View>
 
+            <View style={styles.dailySectionDivider} />
+
+            <Text style={styles.sexualActivityTitle}>Cinsel ilişki</Text>
+            <Text style={styles.sexualActivityDescription}>
+              Seçili gün için kaydetmek istediğin durumu işaretleyebilirsin.
+              Hiç seçim yapmaman, “İlişki olmadı” kaydıyla aynı değildir.
+            </Text>
+
+            <View style={styles.sexualActivityOptionsWrap}>
+              {SEXUAL_ACTIVITY_OPTIONS.map((option) => {
+                const selected =
+                  selectedSexualActivity === option.key;
+
+                return (
+                  <Pressable
+                    key={option.key}
+                    style={[
+                      styles.sexualActivityChip,
+                      selected && styles.sexualActivityChipSelected,
+                    ]}
+                    onPress={() =>
+                      handleSelectSexualActivity(option.key)
+                    }
+                  >
+                    <Text
+                      style={[
+                        styles.sexualActivityChipText,
+                        selected &&
+                          styles.sexualActivityChipTextSelected,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text style={styles.sexualActivityFootnote}>
+              Bu kayıt yalnızca kişisel takibin içindir; gebelik riski
+              hesaplamaz ve korunma yönteminin etkinliğini değerlendirmez.
+            </Text>
+
             <View style={styles.dischargeDivider} />
 
             <Text style={styles.dischargeTitle}>Akıntı takibi</Text>
             <Text style={styles.dischargeDescription}>
-              Bugün gözlemlediğin kadarını seçebilirsin. Her alanı doldurmak
+              Seçili günde gözlemlediğin kadarını seçebilirsin. Her alanı doldurmak
               zorunda değilsin.
             </Text>
 
             <Text style={styles.inputLabel}>Doku / kıvam</Text>
             <View style={styles.dischargeOptionsWrap}>
               {DISCHARGE_CONSISTENCY_OPTIONS.map((option) => {
-                const selected = todayDischarge.consistency === option.key;
+                const selected = selectedDischarge.consistency === option.key;
                 return (
                   <Pressable
                     key={option.key}
@@ -2991,18 +3121,18 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
               })}
             </View>
 
-            {todayDischarge.consistency === "other" ? (
+            {selectedDischarge.consistency === "other" ? (
               <View style={styles.dischargeSavedNoteCard}>
                 <View style={styles.dischargeSavedNoteTextWrap}>
                   <Text style={styles.dischargeSavedNoteLabel}>
                     Kendi tanımın
                   </Text>
                   <Text style={styles.dischargeSavedNoteValue}>
-                    {todayDischarge.consistencyNote?.trim()
-                      ? todayDischarge.consistencyNote
+                    {selectedDischarge.consistencyNote?.trim()
+                      ? selectedDischarge.consistencyNote
                       : "Henüz bir tanım eklemedin."}
                   </Text>
-                  {todayDischarge.consistencyNote?.trim() ? (
+                  {selectedDischarge.consistencyNote?.trim() ? (
                     <Text style={styles.dischargeSavedNoteStatus}>
                       ✓ Kaydedildi
                     </Text>
@@ -3014,7 +3144,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
                   onPress={() => openDischargeNoteEditor("consistency")}
                 >
                   <Text style={styles.dischargeSavedNoteActionText}>
-                    {todayDischarge.consistencyNote?.trim()
+                    {selectedDischarge.consistencyNote?.trim()
                       ? "Düzenle"
                       : "Tanım ekle"}
                   </Text>
@@ -3022,12 +3152,12 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
               </View>
             ) : null}
 
-            {todayDischarge.consistency !== "none" ? (
+            {selectedDischarge.consistency !== "none" ? (
               <>
                 <Text style={styles.inputLabel}>Miktar</Text>
                 <View style={styles.dischargeOptionsWrap}>
                   {DISCHARGE_AMOUNT_OPTIONS.map((option) => {
-                    const selected = todayDischarge.amount === option.key;
+                    const selected = selectedDischarge.amount === option.key;
                     return (
                       <Pressable
                         key={option.key}
@@ -3053,7 +3183,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
                 <Text style={styles.inputLabel}>Renk</Text>
                 <View style={styles.dischargeOptionsWrap}>
                   {DISCHARGE_COLOR_OPTIONS.map((option) => {
-                    const selected = todayDischarge.color === option.key;
+                    const selected = selectedDischarge.color === option.key;
                     return (
                       <Pressable
                         key={option.key}
@@ -3076,18 +3206,18 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
                   })}
                 </View>
 
-                {todayDischarge.color === "other" ? (
+                {selectedDischarge.color === "other" ? (
                   <View style={styles.dischargeSavedNoteCard}>
                     <View style={styles.dischargeSavedNoteTextWrap}>
                       <Text style={styles.dischargeSavedNoteLabel}>
                         Kendi tanımın
                       </Text>
                       <Text style={styles.dischargeSavedNoteValue}>
-                        {todayDischarge.colorNote?.trim()
-                          ? todayDischarge.colorNote
+                        {selectedDischarge.colorNote?.trim()
+                          ? selectedDischarge.colorNote
                           : "Henüz bir tanım eklemedin."}
                       </Text>
-                      {todayDischarge.colorNote?.trim() ? (
+                      {selectedDischarge.colorNote?.trim() ? (
                         <Text style={styles.dischargeSavedNoteStatus}>
                           ✓ Kaydedildi
                         </Text>
@@ -3099,7 +3229,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
                       onPress={() => openDischargeNoteEditor("color")}
                     >
                       <Text style={styles.dischargeSavedNoteActionText}>
-                        {todayDischarge.colorNote?.trim()
+                        {selectedDischarge.colorNote?.trim()
                           ? "Düzenle"
                           : "Tanım ekle"}
                       </Text>
@@ -3110,7 +3240,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
                 <Text style={styles.inputLabel}>Koku</Text>
                 <View style={styles.dischargeOptionsWrap}>
                   {DISCHARGE_ODOR_OPTIONS.map((option) => {
-                    const selected = todayDischarge.odor === option.key;
+                    const selected = selectedDischarge.odor === option.key;
                     return (
                       <Pressable
                         key={option.key}
@@ -3149,10 +3279,10 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
               kaydedebilirsin. Bu kayıt döngü tahminlerini değiştirmez.
             </Text>
 
-            {isCurrentlyInPeriod ? (
+            {isSelectedDateInPeriod ? (
               <View style={styles.bleedingPeriodNotice}>
                 <Text style={styles.bleedingPeriodNoticeText}>
-                  Şu an kayıtlı regl dönemindesin. Regl kanaman ayrı regl
+                  Seçtiğin tarih kayıtlı regl döneminin içinde. Regl kanaman ayrı regl
                   kaydında tutuluyor; bu alanı kullanmana gerek yok.
                 </Text>
               </View>
@@ -3160,7 +3290,7 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
               <>
                 <View style={styles.bleedingOptionsWrap}>
                   {BLEEDING_OPTIONS.map((option) => {
-                    const selected = todayBleeding?.type === option.key;
+                    const selected = selectedBleeding?.type === option.key;
 
                     return (
                       <Pressable
@@ -3184,14 +3314,14 @@ Tarihi düzeltmek istiyorsan “Döngü Ayarları”ndaki son regl başlangıcı
                   })}
                 </View>
 
-                {todayBleeding?.type &&
-                todayBleeding.type !== "none" ? (
+                {selectedBleeding?.type &&
+                selectedBleeding.type !== "none" ? (
                   <Text style={styles.bleedingSavedStatus}>
-                    ✓ Bugünkü gözlemin kaydedildi.
+                    ✓ Seçili günün gözlemi kaydedildi.
                   </Text>
                 ) : null}
 
-                {todayBleeding?.type === "heavy" ? (
+                {selectedBleeding?.type === "heavy" ? (
                   <View style={styles.bleedingHeavyNotice}>
                     <Text style={styles.bleedingHeavyNoticeText}>
                       Çok yoğun kanama devam ediyorsa veya baş dönmesi, nefes
@@ -3615,6 +3745,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 20,
+    marginBottom: 8,
+  },
+
+  fertilityEstimateNote: {
+    fontSize: 11,
+    lineHeight: 17,
+    color: COLORS.textMuted,
+    marginHorizontal: 4,
     marginBottom: 14,
   },
 
@@ -3830,6 +3968,144 @@ const styles = StyleSheet.create({
 
   phaseDecoration: {
     fontSize: 34,
+  },
+
+  dailyTrackingDescription: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: COLORS.textMuted,
+    marginTop: -2,
+    marginBottom: 8,
+  },
+
+  dailyDateNavigator: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 16,
+    backgroundColor: "#FFFDFC",
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+
+  dailyDateArrowButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.chip,
+  },
+
+  dailyDateArrowButtonDisabled: {
+    opacity: 0.45,
+  },
+
+  dailyDateArrow: {
+    fontSize: 28,
+    lineHeight: 30,
+    color: COLORS.primaryDark,
+    fontWeight: "600",
+  },
+
+  dailyDateArrowDisabled: {
+    color: COLORS.textMuted,
+  },
+
+  dailyDateCenter: {
+    flex: 1,
+    alignItems: "center",
+    paddingHorizontal: 8,
+  },
+
+  dailyDateLabel: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+    color: COLORS.text,
+    textAlign: "center",
+  },
+
+  dailyDateMeta: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+
+  dailyTodayButton: {
+    alignSelf: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginBottom: 4,
+  },
+
+  dailyTodayButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.primaryDark,
+  },
+
+  dailySectionDivider: {
+    height: 1,
+    backgroundColor: COLORS.border,
+    marginVertical: 14,
+  },
+
+  sexualActivityTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+
+  sexualActivityDescription: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: COLORS.textMuted,
+    marginBottom: 10,
+  },
+
+  sexualActivityOptionsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+
+  sexualActivityChip: {
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.card,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+
+  sexualActivityChipSelected: {
+    backgroundColor: "#FFF0EC",
+    borderColor: "#E2A4A1",
+  },
+
+  sexualActivityChipText: {
+    fontSize: 13,
+    color: COLORS.textSoft,
+  },
+
+  sexualActivityChipTextSelected: {
+    color: COLORS.text,
+    fontWeight: "700",
+  },
+
+  sexualActivityFootnote: {
+    fontSize: 11,
+    lineHeight: 17,
+    color: COLORS.textMuted,
+    marginTop: 2,
   },
 
   inputLabel: {

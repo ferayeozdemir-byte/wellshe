@@ -3,6 +3,7 @@
 export type CyclePhase =
   | "menstruation"
   | "follicular"
+  | "fertile"
   | "ovulation"
   | "luteal"
   | "unknown";
@@ -231,17 +232,27 @@ export function getOvulationInfo(
   const last = normalizedLogs[normalizedLogs.length - 1];
   const lastStart = fromISODate(last.startDate);
 
-  // Mevcut ovülasyon hesabı bu aşamada özellikle değiştirilmedi.
-  const mid = Math.round(effectiveSettings.averageCycleLength / 2);
+  // Takvim-temelli yaklaşık hesap (ASRM calendar method):
+  // tahmini ovülasyon döngü günü ≈ döngü uzunluğu - 14.
+  // Bu bir tahmindir; gerçek ovülasyon zamanı döngüden döngüye değişebilir.
+  const ovulationCycleDay = Math.max(
+    1,
+    effectiveSettings.averageCycleLength - 14
+  );
 
+  // Döngü günü 1 = regl başlangıç günü, bu yüzden tarih offset'i day - 1.
   const ovulation = new Date(lastStart);
-  ovulation.setDate(ovulation.getDate() + mid);
+  ovulation.setDate(ovulation.getDate() + ovulationCycleDay - 1);
 
+  // WellShe için korumacı takvim tahmini:
+  // ACOG kullanıcı rehberindeki gebelik olasılığı aralığını kapsar:
+  // tahmini ovülasyondan önceki 5 gün + ovülasyon günü + sonraki 1 gün.
+  // Bu aralık gerçek ovülasyonu doğrulamaz; yalnızca takvim-temelli tahmindir.
   const ws = new Date(ovulation);
-  ws.setDate(ws.getDate() - 2);
+  ws.setDate(ws.getDate() - 5);
 
   const we = new Date(ovulation);
-  we.setDate(we.getDate() + 2);
+  we.setDate(we.getDate() + 1);
 
   return {
     ovulationDate: toISODate(ovulation),
@@ -275,7 +286,28 @@ export function getCyclePhaseInfo(
 
   const cycleLen = effectiveSettings.averageCycleLength;
   const periodLen = effectiveSettings.periodLength;
-  const mid = Math.round(cycleLen / 2);
+  const ovulationInfo = getOvulationInfo(
+    normalizedLogs,
+    effectiveSettings
+  );
+  const ovulationOffset = ovulationInfo.ovulationDate
+    ? diffInDaysLocal(
+        lastStartDate,
+        fromISODate(ovulationInfo.ovulationDate)
+      )
+    : null;
+  const fertileStartOffset = ovulationInfo.windowStart
+    ? diffInDaysLocal(
+        lastStartDate,
+        fromISODate(ovulationInfo.windowStart)
+      )
+    : null;
+  const fertileEndOffset = ovulationInfo.windowEnd
+    ? diffInDaysLocal(
+        lastStartDate,
+        fromISODate(ovulationInfo.windowEnd)
+      )
+    : null;
 
   // çok uç değerler
   if (diffDays < 0 || diffDays > cycleLen + 10) {
@@ -292,54 +324,77 @@ export function getCyclePhaseInfo(
   if (diffDays >= 0 && diffDays < periodLen) {
     return {
       key: "menstruation",
-      title: "Regl Fazı",
+      title: "Regl Dönemi",
       description:
-        "Bedenin yenilenme ve arınma sürecinde. Enerjinin dalgalanması son derece normal.",
+        "Bu sırada rahim iç tabakası, kan ve doku olarak vücuttan atılır. Kanama süren ve bu günlerde nasıl hissettiğin her döngüde aynı olmayabilir.",
       suggestion:
-        "Bugün kendine biraz daha nazik davranman, tempoyu düşürmen ve dinlenmeye alan açman iyi gelebilir.",
+        "Bugün bedeninin temposuna göre ilerle. Sana iyi geliyorsa dinlenmeye, sıcak bir duşa ya da hafif harekete biraz daha alan açabilirsin.",
     };
   }
 
-  // ovülasyon penceresi: mid ±2
-  if (diffDays >= mid - 2 && diffDays <= mid + 2) {
+  if (ovulationOffset !== null && diffDays === ovulationOffset) {
     return {
       key: "ovulation",
-      title: "Ovülasyon Fazı",
+      title: "Tahmini Ovülasyon Günü",
       description:
-        "Enerjinin ve öz güveninin arttığı, sosyal olarak daha dışa dönük hissetmeye eğilimli olabileceğin bir fazdasın.",
+        "Takvim hesabı bugün için tahmini ovülasyon gününü gösteriyor. Gerçek ovülasyon zamanı aynı kişide bile döngüden döngüye değişebilir.",
       suggestion:
-        "Görüşmeler, yaratıcı projeler, kendini ifade etmen gereken işler için bu dönemi değerlendirebilirsin.",
+        "Bu tarihi kesin bir gün gibi görmek yerine küçük bir yol işareti gibi düşün. Bugün de planlarını enerjine ve ihtiyacına göre şekillendirebilirsin.",
     };
   }
 
-  if (diffDays >= periodLen && diffDays < mid - 2) {
+  if (
+    fertileStartOffset !== null &&
+    fertileEndOffset !== null &&
+    ovulationOffset !== null &&
+    diffDays >= fertileStartOffset &&
+    diffDays <= fertileEndOffset
+  ) {
+    return {
+      key: "fertile",
+      title: "Tahmini Verimli Dönem",
+      description:
+        "Döngü kayıtların tahmini verimli günlere işaret ediyor. Bu aralık yalnızca takvim temelli bir tahmindir ve ovülasyonun gerçekleştiğini doğrulamaz.",
+      suggestion:
+        "Takvimdeki tarihleri kesin bir kural gibi görmek zorunda değilsin. Bedeninin ritmine alan açıp gününü sana iyi gelen şekilde sürdürebilirsin.",
+    };
+  }
+
+  if (
+    diffDays >= periodLen &&
+    (fertileStartOffset === null || diffDays < fertileStartOffset)
+  ) {
     return {
       key: "follicular",
-      title: "Folikül Fazı",
+      title: "Foliküler Dönem",
       description:
-        "Regl sonrası enerjinin yavaş yavaş yükseldiği, zihinsel olarak daha açık ve meraklı hissettiğin bir dönemdesin.",
+        "Bu süreçte yumurtalıklardaki foliküller gelişmeye devam eder ve hormon düzeyleri değişir. Foliküler faz ovülasyona kadar sürer.",
       suggestion:
-        "Yeni şeyler öğrenmek, plan yapmak ve hafif tempolu egzersizlere başlamak için bu faz oldukça destekleyici.",
+        "Bugün enerjin neye izin veriyorsa ona göre ilerle. Yeni bir şeye başlamak istiyorsan küçük ve keyifli bir adım seçebilirsin.",
     };
   }
 
-  if (diffDays > mid + 2 && diffDays < cycleLen) {
+  if (
+    fertileEndOffset !== null &&
+    diffDays > fertileEndOffset &&
+    diffDays < cycleLen
+  ) {
     return {
       key: "luteal",
-      title: "Luteal Faz",
+      title: "Luteal Dönem",
       description:
-        "Bedenin yavaş yavaş içe dönmeye hazırlanıyor. Duygular hassaslaşabilir, enerji iniş çıkışları yaşayabilirsin.",
+        "Ovülasyondan sonraki luteal fazda hormon düzeyleri yeniden değişir. Regl yaklaşırken fiziksel veya duygusal değişiklikler hissedebilirsin.",
       suggestion:
-        "Bu dönemde yapılacaklar listeni sadeleştirmen, sana iyi gelen rutinlere ağırlık vermen ve kendine karşı anlayışlı olman çok değerli.",
+        "Gününü biraz daha esnek planlaman, ihtiyaç duyduğunda temponu azaltman ve sana keyif veren rutinlere dönmen iyi gelebilir.",
     };
   }
 
   return {
     key: "unknown",
-    title: "Geçiş dönemi",
+    title: "Geçiş Dönemi",
     description:
-      "Bugün için net bir faz tanımı yapamıyoruz ama bu da döngünün doğal dalgalanmalarının bir parçası.",
+      "Bugün için net bir dönem tanımı yapmak zor. Döngü tarihleri yalnızca yaklaşık bir çerçeve sunar.",
     suggestion:
-      "Bedeninin bugün nasıl hissettiğini gözlemlemen ve buna göre küçük ayarlamalar yapman en sağlıklı rehber olacaktır.",
+      "Bugün için tek bir doğru tempo yok. Kendini nasıl hissediyorsan gününü ona göre şekillendirebilirsin.",
   };
 }
