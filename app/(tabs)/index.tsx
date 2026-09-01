@@ -318,14 +318,14 @@ const MOTIVATION_QUOTES: string[] = [
   "Senin yolun, senin hızın.",
   "İyileşmek bir yolculuk. Ve yol, adım adım güzelleşir.",
   "Kendine sınır koyma, potansiyelin düşündüğünden büyük.",
-  "İçindeki güç, sandığından daha fazla.",
+  "Bugüne kadar aştığın zorluklar, içindeki gücün kanıtı.",
   "Bir dur, nefes al ve devam et.",
-  "Unutma, değişim küçük bir karar ile başlar.",
+  "Unutma, değişim küçük bir kararla başlar.",
   "Kendini affet. Yeniden başlamak özgürlüktür.",
   "Her gün, bir önceki günden daha iyi olabilirsin.",
   "Bugün kendine verdiğin her emek, yarın mutluluk olur.",
   "Enerjini koru. Her yere yetişmek zorunda değilsin.",
-  "Zor günler, güçlenen senin habercisidir.",
+  "Zor günler, daha da güçleneceğinin habercisi.",
   "Şefkatle yaklaş. En çok da kendine.",
   "Cesaret, korkunun yokluğu değil; ona rağmen yürümektir.",
   "Hayat, seninle birlikte şekilleniyor.",
@@ -343,7 +343,7 @@ const MOTIVATION_QUOTES: string[] = [
   "Kendine güven, en sağlam temel odur.",
   "Düştüğünde değil, kalktığında güçlenirsin.",
   "Başarı, sabırlı olanları sever.",
-  "Bugün, zihnini yenilemek için bir fırsat.",
+  "Bugün, zihnini yenilemen için bir fırsat.",
   "Kendinle barıştığında dünya da seninle barışır.",
   "Küçük gelişmeleri kutla. Onlar sana güç verir.",
   "Hayallerin sandığından daha yakın!",
@@ -358,7 +358,7 @@ const MOTIVATION_QUOTES: string[] = [
   "Ne kadar yol alacağını bugün attığın adım belirler.",
   "Cesaretinle hayatına yön verebilirsin.",
   "Beklediğin değişim seninle başlar.",
-  "Kendin için durduğunda bile ilerliyorsun.",
+  "Bazen durup nefes almak da ilerlemenin bir parçası.",
   "Bugün güzellikleri fark etmeye niyet et.",
   "Hayat senden yana. Yeter ki sen de kendinden yana ol.",
   "En zor günün bile içinde bir kıvılcım vardır.",
@@ -367,7 +367,7 @@ const MOTIVATION_QUOTES: string[] = [
   "Ne kadar ilerlediğini fark etmek için bir an dur.",
   "Kendine alan aç. Büyümek için buna ihtiyacın var.",
   "Şimdi başla! Mükemmel anı bekleme.",
-  "Kendini, olduğundan daha iyi bir yere taşıyabilirsin.",
+  "Kendini olduğundan daha iyi bir yere taşıyabilirsin.",
   "Bugün hayatına iyi gelen şeylere odaklan.",
   "Kendini yenilemek adına harekete geçmek için asla geç değil.",
   "Şefkati bir prensip hâline getir. En çok da kendin için.",
@@ -378,9 +378,20 @@ const MOTIVATION_QUOTES: string[] = [
   "Kendini hafife alma, potansiyelin büyük!",
   "Bugün daha iyi bir sen yaratmak için harika bir gün.",
   "Sen bu yolculuğun en değerli parçasısın.",
+  "Bugün her şeyi çözmek zorunda değilsin, sadece önündeki adıma odaklan.",
+  "Sınır koymak sevgisizlik değil, öz saygıdır.",
+  "İçinde hâlâ denemek isteyen bir yan varsa bugün ona bir şans ver.",
+  "Kararsızsan kendine şunu sor: Bu seçim bana gerçekten iyi geliyor mu?",
+  "Bir işi bitirmek kadar ne zaman bırakacağını bilmek de değerli.",
+  "Yardım istemek güçsüzlük değil, kendine iyi bakmanın bir yolu.",
+  "Kendine ayırdığın birkaç sakin dakika, gününün yönünü değiştirebilir.",
+  "Duygularını bastırmak zorunda değilsin. Onları fark etmek de bir güç.",
+  "Merakını takip et. Öğrendiğin her şey sana yeni bir yol açar.",
 ];
 
-const MOTIVATION_START_DATE = new Date("2025-01-01").getTime();
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+const MOTIVATION_START_DAY =
+  Date.UTC(2025, 0, 1) / MILLISECONDS_PER_DAY;
 const WATER_GOAL = 6;
 const WATER_TRACK_KEY = "wellshe_water_today";
 
@@ -419,11 +430,15 @@ function getPhaseOneLinerFromKey(phaseKey: CyclePhase): string {
   return "Bugün kendini nasıl hissediyorsan gününü de ona göre şekillendir. Küçük bir iyilik bile yeter.";
 }
 
-function getTodayMotivation(): string {
-  const today = new Date().getTime();
-  const diffDays = Math.floor(
-    (today - MOTIVATION_START_DATE) / (1000 * 60 * 60 * 24)
+function getLocalCalendarDay(date: Date): number {
+  return (
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) /
+    MILLISECONDS_PER_DAY
   );
+}
+
+function getTodayMotivation(today = new Date()): string {
+  const diffDays = getLocalCalendarDay(today) - MOTIVATION_START_DAY;
   const index =
     ((diffDays % MOTIVATION_QUOTES.length) + MOTIVATION_QUOTES.length) %
     MOTIVATION_QUOTES.length;
