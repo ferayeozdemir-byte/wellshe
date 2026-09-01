@@ -3,97 +3,100 @@
     "name": "WellShe",
     "scheme": "wellshe",
     "slug": "wellshe",
+    "owner": "wellshe",
     "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/images/logo/wellshe_adaptive_foreground.png",
     "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+
     "splash": {
       "image": "./assets/images/splash_big.png",
       "resizeMode": "contain",
       "backgroundColor": "#fdf1e6"
     },
+
     "assetBundlePatterns": [
       "**/*"
     ],
+
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0,
       "url": "https://u.expo.dev/4875fac3-fcb7-478f-be18-25febe55c294"
     },
+
     "runtimeVersion": "1.0.6",
+
+    "ios": {
+      "bundleIdentifier": "com.feraye.wellshe",
+      "supportsTablet": true,
+      "buildNumber": "18",
+      "config": {
+        "googleMobileAdsAppId": "ca-app-pub-9133000462142645~7819586434"
+      },
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSUserTrackingUsageDescription": "WellShe, reklam performansını ölçmek ve daha alakalı reklam deneyimi sunmak için cihaz tanımlayıcısını kullanabilir.",
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      }
+    },
+
+    "android": {
+      "package": "com.feraye.wellshe",
+      "versionCode": 45,
+      "permissions": [
+        "com.google.android.gms.permission.AD_ID"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/logo/wellshe_adaptive_foreground.png",
+        "backgroundColor": "#ffffff"
+      },
+      "config": {
+        "googleMobileAdsAppId": "ca-app-pub-9133000462142645~5704575558"
+      }
+    },
+
+    "plugins": [
+      "./plugins/withAdMobManifestFix",
+      "expo-secure-store",
+      "expo-notifications",
+      [
+        "expo-tracking-transparency",
+        {
+          "userTrackingPermission": "WellShe, reklam performansını ölçmek ve daha alakalı reklam deneyimi sunmak için cihaz tanımlayıcısını kullanabilir."
+        }
+      ],
+      [
+        "react-native-fbsdk-next",
+        {
+          "appID": "1545215496778211",
+          "clientToken": "91a10551ba0068c86670e4edf6dd0566",
+          "displayName": "WellShe",
+          "scheme": "fb1545215496778211",
+          "advertiserIDCollectionEnabled": true,
+          "autoLogAppEventsEnabled": true,
+          "isAutoInitEnabled": true,
+          "iosUserTrackingPermission": "WellShe, reklam performansını ölçmek ve daha alakalı reklam deneyimi sunmak için cihaz tanımlayıcısını kullanabilir."
+        }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "react-native",
+          "organization": "wellshe"
+        }
+      ]
+    ],
+
     "extra": {
       "eas": {
         "projectId": "4875fac3-fcb7-478f-be18-25febe55c294"
       }
     }
-  },
-  "newArchEnabled": true,
-  "ios": {
-    "bundleIdentifier": "com.feraye.wellshe",
-    "supportsTablet": true,
-    "buildNumber": "18",
-    "config": {
-      "googleMobileAdsAppId": "ca-app-pub-9133000462142645~7819586434"
-    },
-    "infoPlist": {
-      "ITSAppUsesNonExemptEncryption": false,
-      "NSUserTrackingUsageDescription": "WellShe, reklam performansını ölçmek ve daha alakalı reklam deneyimi sunmak için cihaz tanımlayıcısını kullanabilir.",
-      "UIBackgroundModes": [
-        "audio"
-      ]
-    }
-  },
-  "android": {
-    "package": "com.feraye.wellshe",
-    "versionCode": 45,
-    "permissions": [
-      "com.google.android.gms.permission.AD_ID"
-    ],
-    "adaptiveIcon": {
-      "foregroundImage": "./assets/images/logo/wellshe_adaptive_foreground.png",
-      "backgroundColor": "#ffffff"
-    },
-    "config": {
-      "googleMobileAdsAppId": "ca-app-pub-9133000462142645~5704575558"
-    }
-  },
-  "plugins": [
-    "./plugins/withAdMobManifestFix",
-    "expo-secure-store",
-    "expo-notifications",
-    [
-      "expo-tracking-transparency",
-      {
-        "userTrackingPermission": "WellShe, reklam performansını ölçmek ve daha alakalı reklam deneyimi sunmak için cihaz tanımlayıcısını kullanabilir."
-      }
-    ],
-    [
-      "react-native-fbsdk-next",
-      {
-        "appID": "1545215496778211",
-        "clientToken": "91a10551ba0068c86670e4edf6dd0566",
-        "displayName": "WellShe",
-        "scheme": "fb1545215496778211",
-        "advertiserIDCollectionEnabled": true,
-        "autoLogAppEventsEnabled": true,
-        "isAutoInitEnabled": true,
-        "iosUserTrackingPermission": "WellShe, reklam performansını ölçmek ve daha alakalı reklam deneyimi sunmak için cihaz tanımlayıcısını kullanabilir."
-      }
-    ],
-    [
-      "@sentry/react-native/expo",
-      {
-        "url": "https://sentry.io/",
-        "project": "react-native",
-        "organization": "wellshe"
-      }
-    ]
-  ],
-  "extra": {
-    "eas": {
-      "projectId": "4875fac3-fcb7-478f-be18-25febe55c294"
-    }
-  },
-  "owner": "wellshe"
+  }
 }
