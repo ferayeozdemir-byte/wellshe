@@ -35,7 +35,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AdBanner from "../../components/AdBanner";
-import { type CategoryId } from "../../data/content";
 import { weeklyArchive, type WeeklyItem } from "../../data/weekly";
 import {
   fetchActiveAnnouncements,
@@ -249,19 +248,6 @@ const categories: { key: CategoryKey; label: string }[] = [
   { key: "travel", label: "Seyahat" },
   { key: "home", label: "Ev / Yaşam" },
 ];
-
-// Kategori etiketleri (Son eklenen içerikler için)
-const categoryLabels: Record<CategoryId, string> = {
-  healthyEating: "Sağlıklı Beslenme",
-  relationships: "İlişkiler",
-  wellbeing: "Wellbeing",
-  sport: "Spor",
-  fashion: "Moda",
-  beauty: "Güzellik",
-  astrology: "Astroloji",
-  travel: "Seyahat",
-  home: "Ev / Yaşam",
-};
 
 const LATEST_CATEGORY_IMAGES: Record<CategoryKey, any> = {
   healthyEating: require("../../assets/images/home/latest/healthy-eating.png"),

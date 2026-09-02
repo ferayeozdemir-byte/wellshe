@@ -50,3 +50,6 @@ sentry.properties
 .env.local
 
 app.config.js.bak
+
+# Supabase CLI local state
+/supabase/.temp/

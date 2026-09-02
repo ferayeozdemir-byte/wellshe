@@ -212,7 +212,7 @@ function InlineAudioBlock({
   const [loadingUrl, setLoadingUrl] = useState(true);
   const [audioLoading, setAudioLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -247,19 +247,24 @@ function InlineAudioBlock({
 
   useEffect(() => {
     return () => {
-      if (sound) {
-        sound.unloadAsync().catch(() => {});
+      const currentSound = soundRef.current;
+      soundRef.current = null;
+
+      if (currentSound) {
+        currentSound.setOnPlaybackStatusUpdate(null);
+        currentSound.unloadAsync().catch(() => {});
       }
     };
-  }, [sound]);
+  }, []);
 
   async function toggleInlineAudio() {
     if (!resolvedUrl) return;
 
     try {
       setAudioLoading(true);
+      const currentSound = soundRef.current;
 
-      if (!sound) {
+      if (!currentSound) {
         const { sound: newSound } = await Audio.Sound.createAsync(
           { uri: resolvedUrl },
           { shouldPlay: true }
@@ -283,7 +288,7 @@ function InlineAudioBlock({
           }
         });
 
-        setSound(newSound);
+        soundRef.current = newSound;
         setIsPlaying(true);
 
         void trackEvent({
@@ -299,7 +304,7 @@ function InlineAudioBlock({
       }
 
       if (isPlaying) {
-        await sound.pauseAsync();
+        await currentSound.pauseAsync();
         setIsPlaying(false);
 
         void trackEvent({
@@ -311,7 +316,7 @@ function InlineAudioBlock({
           },
         });
       } else {
-        await sound.playAsync();
+        await currentSound.playAsync();
         setIsPlaying(true);
 
         void trackEvent({
@@ -419,7 +424,7 @@ export default function ArticleScreen() {
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioLoading, setAudioLoading] = useState(false);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
 
   const [localHit, setLocalHit] = useState<any | null>(null);
 
@@ -455,19 +460,24 @@ export default function ArticleScreen() {
 
   useEffect(() => {
     return () => {
-      if (sound) {
-        sound.unloadAsync().catch(() => {});
+      const currentSound = soundRef.current;
+      soundRef.current = null;
+
+      if (currentSound) {
+        currentSound.setOnPlaybackStatusUpdate(null);
+        currentSound.unloadAsync().catch(() => {});
       }
     };
-  }, [sound]);
+  }, []);
 
   async function toggleAudio() {
     if (!audioUrl) return;
 
     try {
       setAudioLoading(true);
+      const currentSound = soundRef.current;
 
-      if (!sound) {
+      if (!currentSound) {
         const { sound: newSound } = await Audio.Sound.createAsync(
           { uri: audioUrl },
           { shouldPlay: true }
@@ -493,7 +503,7 @@ export default function ArticleScreen() {
           }
         });
 
-        setSound(newSound);
+        soundRef.current = newSound;
         setIsPlaying(true);
 
         void trackEvent({
@@ -511,7 +521,7 @@ export default function ArticleScreen() {
       }
 
       if (isPlaying) {
-        await sound.pauseAsync();
+        await currentSound.pauseAsync();
         setIsPlaying(false);
 
         void trackEvent({
@@ -525,7 +535,7 @@ export default function ArticleScreen() {
           },
         });
       } else {
-        await sound.playAsync();
+        await currentSound.playAsync();
         setIsPlaying(true);
 
         void trackEvent({
@@ -563,9 +573,12 @@ export default function ArticleScreen() {
         setAudioUrl(null);
         setIsPlaying(false);
 
-        if (sound) {
-          await sound.unloadAsync().catch(() => {});
-          setSound(null);
+        const currentSound = soundRef.current;
+        soundRef.current = null;
+
+        if (currentSound) {
+          currentSound.setOnPlaybackStatusUpdate(null);
+          await currentSound.unloadAsync().catch(() => {});
         }
 
         if (!routeId) {
